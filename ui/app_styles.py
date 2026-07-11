@@ -67,12 +67,21 @@ def build_stylesheet(mode: str) -> str:
         font-size: 13px;
         background: transparent;
     }}
+    QLabel#heroTitle {{
+        color: {colors['text']};
+        font-size: 28px;
+        font-weight: 700;
+    }}
+    QLabel#heroSubtitle {{
+        color: {colors['muted']};
+        font-size: 14px;
+    }}
     QMainWindow, QTabWidget::pane, QScrollArea, QScrollArea > QWidget > QWidget {{
         background: {colors['window']};
     }}
     QTabWidget::pane {{
         border: none;
-        border-radius: 22px;
+        border-radius: 18px;
         background: {colors['panel']};
         margin-top: 10px;
         padding: 8px 0 0 0;
@@ -80,7 +89,7 @@ def build_stylesheet(mode: str) -> str:
     QFrame, QGroupBox {{
         background: {colors['panel']};
         border: 1px solid {colors['border_soft']};
-        border-radius: 22px;
+        border-radius: 18px;
     }}
     QGroupBox {{
         margin-top: 18px;
@@ -121,6 +130,9 @@ def build_stylesheet(mode: str) -> str:
     }}
     QPushButton:pressed {{
         background: {colors['selection']};
+    }}
+    QPushButton:focus {{
+        border: 2px solid {colors['accent_strong']};
     }}
     QLabel {{
         background: transparent;
@@ -208,6 +220,9 @@ def build_stylesheet(mode: str) -> str:
     QCheckBox {{
         spacing: 10px;
         font-weight: 600;
+    }}
+    QCheckBox:focus {{
+        color: {colors['accent']};
     }}
     QCheckBox::indicator {{
         width: 34px;
@@ -300,6 +315,14 @@ def build_stylesheet(mode: str) -> str:
         margin: 12px 0;
     }}
     QSplitter::handle:horizontal:hover {{
+        background: {colors['accent_soft']};
+        border-radius: 5px;
+    }}
+    QSplitter::handle:vertical {{
+        height: 10px;
+        margin: 0 12px;
+    }}
+    QSplitter::handle:vertical:hover {{
         background: {colors['accent_soft']};
         border-radius: 5px;
     }}

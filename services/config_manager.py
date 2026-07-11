@@ -38,9 +38,15 @@ class AppConfig:
 
 
 class ConfigManager:
-    def __init__(self) -> None:
+    def __init__(self, runtime_dir: str | Path | None = None) -> None:
         self.default_config_path = DEFAULT_CONFIG_PATH
-        self.user_data_dir, self.user_log_dir = self._resolve_runtime_dirs()
+        if runtime_dir is None:
+            self.user_data_dir, self.user_log_dir = self._resolve_runtime_dirs()
+        else:
+            self.user_data_dir = Path(runtime_dir)
+            self.user_log_dir = self.user_data_dir / "logs"
+            self.user_data_dir.mkdir(parents=True, exist_ok=True)
+            self.user_log_dir.mkdir(parents=True, exist_ok=True)
         self.user_config_path = self.user_data_dir / "config.json"
 
     def load(self) -> AppConfig:

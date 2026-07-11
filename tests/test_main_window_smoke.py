@@ -2,6 +2,7 @@
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from app.bootstrap import bootstrap_app
@@ -25,6 +26,10 @@ def test_main_window_smoke() -> None:
     assert window.shake_distance_input_spin is not None
     assert window.app_rules_edit is not None
     assert window.dynamic_cursor_checkbox is not None
+    window._update_responsive_layout(900)
+    assert all(splitter.orientation() == Qt.Orientation.Vertical for splitter in window._responsive_splitters)
+    window._update_responsive_layout(1200)
+    assert all(splitter.orientation() == Qt.Orientation.Horizontal for splitter in window._responsive_splitters)
     window.prepare_for_exit()
     context.enhancement_manager.stop()
     app.processEvents()

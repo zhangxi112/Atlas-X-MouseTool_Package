@@ -1,8 +1,10 @@
-﻿from services.config_manager import ConfigManager
+from pathlib import Path
+
+from services.config_manager import AppConfig, ConfigManager
 
 
-def test_config_manager_loads_defaults() -> None:
-    manager = ConfigManager()
+def test_config_manager_loads_defaults(tmp_path: Path) -> None:
+    manager = ConfigManager(runtime_dir=tmp_path / "runtime")
     config = manager.load()
     assert config.highlight.duration_ms > 0
     assert config.highlight.hotkey
@@ -11,11 +13,8 @@ def test_config_manager_loads_defaults() -> None:
     assert config.game_mode.auto_disable_enhancements is True
 
 
-from services.config_manager import AppConfig
-
-
-def test_config_manager_sanitizes_ranges() -> None:
-    manager = ConfigManager()
+def test_config_manager_sanitizes_ranges(tmp_path: Path) -> None:
+    manager = ConfigManager(runtime_dir=tmp_path / "runtime")
     config = AppConfig()
     config.pointer.cursor_size_percent = 5000
     config.pointer.shake_distance_threshold = 10

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSignalBlocker, Qt
-from PySide6.QtGui import QCloseEvent, QColor, QImage, QKeySequence, QPixmap
+from PySide6.QtGui import QCloseEvent, QColor, QImage, QKeySequence, QPixmap, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -89,6 +90,8 @@ class MainWindow(QMainWindow):
         self.theme_assets = {asset.theme.theme_id: asset for asset in self.context.cursor_manager.list_builtin_themes()}
         self.current_custom_project: CursorProject | None = None
         self.theme_color_buttons: dict[str, QPushButton] = {}
+        self._responsive_splitters: list[QSplitter] = []
+        self._theme_mode_groups: list[QButtonGroup] = []
 
         self.theme_list: QListWidget | None = None
         self.theme_preview_label: QLabel | None = None
@@ -142,10 +145,11 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setWindowIcon(create_app_icon())
-        self.setMinimumSize(960, 720)
+        self.setMinimumSize(860, 640)
         self.setMaximumSize(16777215, 16777215)
-        self.resize(1220, 880)
+        self.resize(1180, 820)
         self._build_ui()
+        self._update_responsive_layout(self.width())
         self._set_hotkey_widgets(self.context.config.highlight.hotkey)
         self._refresh_theme_list_selection()
         self._refresh_theme_preview()
@@ -170,6 +174,18 @@ class MainWindow(QMainWindow):
         self.hide()
         if self.statusBar() is not None:
             self.statusBar().showMessage("应用已最小化到托盘。", 3000)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._update_responsive_layout(event.size().width())
+
+    def _update_responsive_layout(self, width: int) -> None:
+        orientation = Qt.Orientation.Vertical if width < 1040 else Qt.Orientation.Horizontal
+        for splitter in self._responsive_splitters:
+            if splitter.orientation() == orientation:
+                continue
+            splitter.setOrientation(orientation)
+            splitter.setSizes([360, 520] if orientation == Qt.Orientation.Vertical else [360, 760])
 
     def _build_ui(self) -> None:
         self.setCentralWidget(self._create_tabs())
@@ -196,9 +212,9 @@ class MainWindow(QMainWindow):
         hero = QFrame()
         hero_layout = QVBoxLayout(hero)
         title = QLabel(APP_NAME)
-        title.setStyleSheet("font-size: 28px; font-weight: 700;")
+        title.setObjectName("heroTitle")
         subtitle = QLabel("Windows 托盘常驻鼠标增强工具")
-        subtitle.setStyleSheet("font-size: 14px; color: #475569;")
+        subtitle.setObjectName("heroSubtitle")
         hero_layout.addWidget(title)
         hero_layout.addWidget(subtitle)
         layout.addWidget(hero)
@@ -285,6 +301,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
+        self._responsive_splitters.append(splitter)
 
         list_panel = QWidget()
         list_panel_layout = QVBoxLayout(list_panel)
@@ -365,6 +382,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
+        self._responsive_splitters.append(splitter)
 
         control_panel = QWidget()
         control_panel_layout = QVBoxLayout(control_panel)
@@ -741,6 +759,11 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         dark_button = QPushButton("深色模式")
         light_button = QPushButton("浅色模式")
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        group.addButton(dark_button)
+        group.addButton(light_button)
+        self._theme_mode_groups.append(group)
         for button in (dark_button, light_button):
             button.setCheckable(True)
             button.setProperty("segmented", True)
