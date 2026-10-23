@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import tempfile
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -15,6 +16,7 @@ from PIL import Image
 U2NET_MODEL_NAME = "u2net.onnx"
 U2NET_MODEL_URL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx"
 U2NET_MODEL_MD5 = "60024c5c889badc19c04ad937298a77b"
+MODEL_DOWNLOAD_TIMEOUT_SECONDS = 30
 
 
 class U2NetSession:
@@ -87,16 +89,21 @@ class U2NetSession:
             return model_path
 
         self.logger.info("Downloading U2Net model to %s", model_path)
-        with urlopen(U2NET_MODEL_URL) as response, model_path.open("wb") as target:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                target.write(chunk)
-
-        if self._md5(model_path) != U2NET_MODEL_MD5:
-            model_path.unlink(missing_ok=True)
-            raise RuntimeError("Downloaded U2Net model checksum mismatch")
+        temporary_path = None
+        try:
+            with urlopen(U2NET_MODEL_URL, timeout=MODEL_DOWNLOAD_TIMEOUT_SECONDS) as response:
+                with tempfile.NamedTemporaryFile(dir=self.model_home, prefix="u2net-", suffix=".partial", delete=False) as target:
+                    temporary_path = Path(target.name)
+                    while chunk := response.read(1024 * 1024):
+                        target.write(chunk)
+                    target.flush()
+                    os.fsync(target.fileno())
+            if self._md5(temporary_path) != U2NET_MODEL_MD5:
+                raise RuntimeError("Downloaded U2Net model checksum mismatch")
+            os.replace(temporary_path, model_path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
         return model_path
 
     def _md5(self, path: Path) -> str:

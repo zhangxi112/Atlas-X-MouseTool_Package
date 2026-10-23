@@ -77,6 +77,15 @@ powerpnt.exe = highlight_arrow
 
 支持内置主题动态播放，并可在检测到全屏应用时自动暂停增强效果，减少干扰。
 
+## 可靠性与数据存储
+
+- 配置、日志、自定义光标和生成的主题缓存存放在 `%APPDATA%\atlas_x_cursor_studio`，不向安装目录写入缓存；目录不可用时尝试 `%LOCALAPPDATA%`，然后是用户主目录下的 `.atlas_x_cursor_studio`。
+- 配置保存使用同目录临时文件和原子替换。JSON 损坏时先保留 `config.json.corrupt-*.bak` 原始备份，再使用默认配置启动；未知字段会被忽略，错误类型和越界参数会回退或限制到有效范围。
+- 自动抠图在后台执行，界面仍可响应。处理期间会禁用图片编辑按钮，退出请求会等待当前任务结束，避免中断写入或销毁正在运行的线程。
+- 模型下载设置 30 秒连接/读取超时，先下载到临时文件并校验，再替换缓存；下载中断或校验失败不会覆盖原有模型文件。
+- 更换全局快捷键时先注册新快捷键，成功后才释放旧快捷键；冲突时保留原快捷键和原设置。
+- 图片导入会应用 EXIF 方向，抠图保留原有透明度，预览使用实际生成光标的像素几何。
+
 ## 已知限制
 
 - 某些程序会自行接管系统光标，可能覆盖 Atlas-X Cursor Studio 的效果
@@ -128,9 +137,20 @@ python -m app.main
 ### 测试
 
 ```powershell
-python -m pytest tests/test_config_manager.py tests/test_cursor_manager.py tests/test_hotkey_parser.py tests/test_image_pipeline.py tests/test_startup_manager.py tests/test_enhancement_manager.py tests/test_main_window_smoke.py
-python -m compileall app core services ui tests
+python -m pytest -q
+python -m compileall -q app core services ui tests
 ```
+
+测试仅收集 `tests/`，使用临时用户数据、离屏 Qt 界面和模拟系统接口，不修改真实系统光标、注册表或全局快捷键，也不会下载 U2Net 模型。GitHub Actions 在 Windows 上运行 Python 3.11 / 3.13 两组检查。
+
+若本机旧 pytest 临时目录出现访问权限错误，可使用全新目录运行，不需要修改旧目录权限：
+
+```powershell
+$testRunDir = Join-Path $PWD ('configs\runtime\verification-' + [guid]::NewGuid().ToString('N'))
+python -m pytest -q --basetemp $testRunDir
+```
+
+真实托盘、系统光标切换、多屏/DPI 和安装包仍需按发布检查清单进行桌面验证。
 
 ### 项目结构
 

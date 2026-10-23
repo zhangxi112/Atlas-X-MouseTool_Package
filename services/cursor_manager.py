@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from core.builtin_themes import BUILTIN_THEMES, BuiltinThemeDefinition, ThemePalette
 from core.constants import ROOT_DIR
 from core.models import CursorTheme
+from services.runtime_paths import user_data_dir
 
 IMAGE_CURSOR = 2
 LR_LOADFROMFILE = 0x0010
@@ -44,10 +45,10 @@ class CursorThemeAsset:
 class CursorManager:
     APPLY_CURSOR_IDS = (32512, 32650, 32651, 32649)
 
-    def __init__(self) -> None:
+    def __init__(self, cache_dir: Path | None = None) -> None:
         self.logger = logging.getLogger(__name__)
-        self.builtin_dir = ROOT_DIR / "assets" / "builtin_cursors"
-        self.builtin_dir.mkdir(parents=True, exist_ok=True)
+        self.bundled_dir = ROOT_DIR / "assets" / "builtin_cursors"
+        self.builtin_dir = cache_dir if cache_dir is not None else user_data_dir() / "builtin_cursors"
         self._theme_assets: dict[str, CursorThemeAsset] = {}
         self._scaled_cursor_paths: dict[tuple[str, int, str], Path] = {}
         self._animated_frames: dict[tuple[str, int, str], list[Path]] = {}
@@ -108,9 +109,9 @@ class CursorManager:
         frame_paths: list[Path] = []
         for frame_index in range(6):
             phase = frame_index / 6
-            image = self._render_theme_image(asset.theme, phase=phase, scale_percent=size_percent, palette_override=palette_override)
             cursor_path = frames_dir / f"frame_{frame_index}.cur"
             if not cursor_path.exists():
+                image = self._render_theme_image(asset.theme, phase=phase, scale_percent=size_percent, palette_override=palette_override)
                 cursor_size = self._cursor_dimensions_for_percent(size_percent)
                 hotspot_x, hotspot_y = self._scaled_hotspot(asset.theme.hotspot_x, asset.theme.hotspot_y, cursor_size)
                 self.create_cursor_file_from_image(image, cursor_path, hotspot_x, hotspot_y, size=(cursor_size, cursor_size))
@@ -150,7 +151,7 @@ class CursorManager:
                     raise ctypes.WinError(ctypes.get_last_error())
                 if not USER32.SetSystemCursor(handle, cursor_id):
                     raise ctypes.WinError(ctypes.get_last_error())
-            self.logger.info("Applied cursor file to system roles: %s", path)
+            self.logger.debug("Applied cursor file to system roles: %s", path)
             return True
         except Exception as exc:
             self.logger.exception("Failed to apply cursor file: %s", exc)
@@ -188,9 +189,16 @@ class CursorManager:
         if self._theme_assets:
             return
         for theme in BUILTIN_THEMES:
-            preview_path = self.builtin_dir / f"{theme.theme_id}.png"
-            cursor_path = self.builtin_dir / f"{theme.theme_id}.cur"
-            image = self._render_theme_image(theme)
+            preview_path = self.bundled_dir / f"{theme.theme_id}.png"
+            cursor_path = self.bundled_dir / f"{theme.theme_id}.cur"
+            if not preview_path.exists():
+                preview_path = self.builtin_dir / preview_path.name
+            if not cursor_path.exists():
+                cursor_path = self.builtin_dir / cursor_path.name
+            image = None
+            if not preview_path.exists() or not cursor_path.exists():
+                self.builtin_dir.mkdir(parents=True, exist_ok=True)
+                image = self._render_theme_image(theme)
             if not preview_path.exists():
                 self._decorate_preview(image).save(preview_path, format="PNG")
             if not cursor_path.exists():

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageOps
 
 ONNXRUNTIME_AVAILABLE = importlib.util.find_spec("onnxruntime") is not None
 
@@ -53,7 +53,7 @@ class ImagePipeline:
         original_path = working_dir / "original.png"
 
         with Image.open(path) as image:
-            image.convert("RGBA").save(original_path, format="PNG")
+            ImageOps.exif_transpose(image).convert("RGBA").save(original_path, format="PNG")
 
         self.logger.info("Imported custom cursor source: %s", path)
         return CursorProject(
@@ -69,7 +69,8 @@ class ImagePipeline:
             raise RuntimeError("onnxruntime is not installed in the current environment")
 
         output_path = project.working_dir / "bg_removed.png"
-        source = Image.open(project.original_path).convert("RGBA")
+        with Image.open(project.original_path) as image:
+            source = image.convert("RGBA")
         mask = self._get_u2net_session().predict_mask(source)
         result = self._cutout_with_mask(source, mask)
         result.save(output_path, format="PNG")
@@ -86,7 +87,8 @@ class ImagePipeline:
     ) -> Path:
         """Create a checkerboard preview showing crop, scale, and hotspot."""
         source = self._load_active_image(project)
-        canvas = self._compose_cursor_canvas(source, (256, 256), scale_percent)
+        canvas = self._compose_cursor_canvas(source, (64, 64), scale_percent)
+        canvas = canvas.resize((256, 256), Image.Resampling.NEAREST)
         preview = self._decorate_preview(canvas, hotspot_x, hotspot_y)
         preview_path = project.working_dir / "preview.png"
         preview.save(preview_path, format="PNG")
@@ -126,7 +128,8 @@ class ImagePipeline:
     def _load_active_image(self, project: CursorProject) -> Image.Image:
         """Load the latest available working image for the project."""
         active_path = project.bg_removed_path or project.original_path
-        return Image.open(active_path).convert("RGBA")
+        with Image.open(active_path) as image:
+            return image.convert("RGBA")
 
     def _compose_cursor_canvas(
         self,
@@ -187,5 +190,5 @@ class ImagePipeline:
     def _cutout_with_mask(self, image: Image.Image, mask: Image.Image) -> Image.Image:
         """Apply a single-channel mask as alpha to produce a transparent cutout."""
         result = image.convert("RGBA").copy()
-        result.putalpha(mask)
+        result.putalpha(ImageChops.multiply(result.getchannel("A"), mask.convert("L")))
         return result

@@ -22,6 +22,9 @@ release/
 # Runtime-generated files
 configs/runtime/
 rendered/
+pyi_runtime/
+assets/builtin_cursors/scaled/
+assets/builtin_cursors/animated/
 
 # OS/editor junk
 .DS_Store
@@ -34,3 +37,9 @@ README_*.txt
 
 # Internal application materials
 docs/softcopyright_notes.md
+internal_only/
+*软著申请/
+GitHub_公开发表证据_*/
+softcopyright_runtime_screenshots/
+submission_ready_docx/
+scripts/*softcopyright*.py

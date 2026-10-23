@@ -43,8 +43,8 @@ def describe_hotkey_sequence(sequence: str) -> str:
 
 
 def parse_hotkey_sequence(sequence: str) -> tuple[int, int]:
-    parts = [part.strip().upper() for part in sequence.split("+") if part.strip()]
-    if not parts:
+    parts = [part.strip().upper() for part in sequence.split("+")]
+    if not all(parts):
         raise ValueError("Hotkey sequence is empty")
     modifier_map = {
         "CTRL": MOD_CONTROL,
@@ -61,10 +61,12 @@ def parse_hotkey_sequence(sequence: str) -> tuple[int, int]:
         if part in modifier_map:
             modifiers |= modifier_map[part]
             continue
+        if key_code is not None:
+            raise ValueError("Hotkey sequence must contain exactly one non-modifier key")
         if part in function_keys:
             key_code = function_keys[part]
             continue
-        if len(part) == 1 and part.isalnum():
+        if len(part) == 1 and part.isascii() and part.isalnum():
             key_code = ord(part)
             continue
         raise ValueError(f"Unsupported hotkey token: {part}")
@@ -101,6 +103,7 @@ class TrayHotkeyManager(QObject):
         self.tray_icon = QSystemTrayIcon(self._resolve_icon(), parent=self.app)
         self.menu = QMenu()
         self.hotkey_filter: GlobalHotkeyFilter | None = None
+        self._registered_hotkey_id: int | None = None
         self._open_action: QAction | None = None
         self._hide_action: QAction | None = None
         self._find_action: QAction | None = None
@@ -124,13 +127,13 @@ class TrayHotkeyManager(QObject):
         self.tray_icon.hide()
 
     def update_hotkey(self, hotkey_sequence: str) -> bool:
-        self.hotkey_sequence = hotkey_sequence
-        self._unregister_hotkey()
         try:
-            self._register_hotkey()
-            return self.hotkey_filter is not None
-        except Exception:
+            parsed = parse_hotkey_sequence(hotkey_sequence)
+        except ValueError:
             return False
+        if self.hotkey_filter is not None and parsed == parse_hotkey_sequence(self.hotkey_sequence):
+            return True
+        return self._register_hotkey(hotkey_sequence)
 
     def show_window(self) -> None:
         self.window.showNormal()
@@ -143,8 +146,9 @@ class TrayHotkeyManager(QObject):
         self._sync_menu_labels()
 
     def quit_application(self) -> None:
+        if not self.window.prepare_for_exit():
+            return
         self.stop()
-        self.window.prepare_for_exit()
         self.app.quit()
 
     def _build_menu(self) -> None:
@@ -176,25 +180,38 @@ class TrayHotkeyManager(QObject):
         if self._hide_action is not None:
             self._hide_action.setEnabled(self.window.isVisible())
 
-    def _register_hotkey(self) -> None:
+    def _register_hotkey(self, sequence: str | None = None) -> bool:
         if not hasattr(ctypes, "windll"):
             self.logger.warning("Global hotkey registration is only supported on Windows")
-            return
+            return False
+        candidate = sequence if sequence is not None else self.hotkey_sequence
+        hotkey_id = self.HOTKEY_ID + 1 if self._registered_hotkey_id == self.HOTKEY_ID else self.HOTKEY_ID
+        registered = False
         try:
-            modifiers, key_code = parse_hotkey_sequence(self.hotkey_sequence)
-            if not ctypes.windll.user32.RegisterHotKey(None, self.HOTKEY_ID, modifiers, key_code):
+            modifiers, key_code = parse_hotkey_sequence(candidate)
+            if not ctypes.windll.user32.RegisterHotKey(None, hotkey_id, modifiers, key_code):
                 raise ctypes.WinError(ctypes.get_last_error())
-            self.hotkey_filter = GlobalHotkeyFilter(self.HOTKEY_ID, self.on_find_mouse)
-            self.app.installNativeEventFilter(self.hotkey_filter)
+            registered = True
+            new_filter = GlobalHotkeyFilter(hotkey_id, self.on_find_mouse)
+            self.app.installNativeEventFilter(new_filter)
+            # Acquire the replacement before releasing the working shortcut.
+            self._unregister_hotkey()
+            self._registered_hotkey_id = hotkey_id
+            self.hotkey_filter = new_filter
+            self.hotkey_sequence = candidate
             self.logger.info("Registered global hotkey: %s", self.hotkey_sequence)
+            return True
         except Exception as exc:
+            if registered:
+                ctypes.windll.user32.UnregisterHotKey(None, hotkey_id)
             self.logger.exception("Failed to register global hotkey: %s", exc)
-            show_warning(self.window, getattr(self.window.context.config.appearance, "theme_mode", "dark"), APP_NAME, f"注册全局快捷键失败：{self.hotkey_sequence}\n{exc}")
+            show_warning(self.window, getattr(self.window.context.config.appearance, "theme_mode", "dark"), APP_NAME, f"注册全局快捷键失败：{candidate}\n{exc}")
+            return False
 
     def _unregister_hotkey(self) -> None:
-        if not hasattr(ctypes, "windll"):
-            return
-        ctypes.windll.user32.UnregisterHotKey(None, self.HOTKEY_ID)
+        if self._registered_hotkey_id is not None and hasattr(ctypes, "windll"):
+            ctypes.windll.user32.UnregisterHotKey(None, self._registered_hotkey_id)
+        self._registered_hotkey_id = None
         if self.hotkey_filter is not None:
             self.app.removeNativeEventFilter(self.hotkey_filter)
             self.hotkey_filter = None

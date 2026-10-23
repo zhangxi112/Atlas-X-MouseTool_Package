@@ -40,6 +40,7 @@ from services.enhancement_manager import parse_app_theme_rules, serialize_app_th
 from services.image_pipeline import CursorProject
 from services.tray_hotkey_manager import describe_hotkey_sequence, parse_hotkey_sequence
 from ui.app_styles import apply_app_theme
+from ui.background_removal import BackgroundRemovalTask
 from ui.dialog_utils import pick_color, show_information, show_question, show_warning
 from ui.icon_factory import create_app_icon
 
@@ -86,6 +87,9 @@ class MainWindow(QMainWindow):
         self.context = context
         self.tray_manager = None
         self._allow_close = False
+        self._background_task: BackgroundRemovalTask | None = None
+        self._exit_after_background = False
+        self._custom_controls: list[QWidget] = []
         self.theme_assets = {asset.theme.theme_id: asset for asset in self.context.cursor_manager.list_builtin_themes()}
         self.current_custom_project: CursorProject | None = None
         self.theme_color_buttons: dict[str, QPushButton] = {}
@@ -158,12 +162,25 @@ class MainWindow(QMainWindow):
         self.tray_manager = tray_manager
         self._refresh_state_labels()
 
-    def prepare_for_exit(self) -> None:
+    def prepare_for_exit(self) -> bool:
+        if self._background_task is not None:
+            self._exit_after_background = True
+            self.statusBar().showMessage("正在完成自动抠图，完成后将安全退出。")
+            return False
         self._allow_close = True
         self.close()
+        return True
+
+    def wait_for_background_task(self) -> None:
+        if self._background_task is not None:
+            self._background_task.wait()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._allow_close or self.tray_manager is None:
+            if self._background_task is not None:
+                self._exit_after_background = True
+                event.ignore()
+                return
             event.accept()
             return
         event.ignore()
@@ -406,6 +423,7 @@ class MainWindow(QMainWindow):
         self._configure_spinbox(self.hotspot_y_spin, 0, 63, 32, width=88)
         self.hotspot_x_spin.valueChanged.connect(self._update_custom_preview)
         self.hotspot_y_spin.valueChanged.connect(self._update_custom_preview)
+        self._custom_controls = [import_button, remove_bg_button, generate_button, self.scale_slider, self.hotspot_x_spin, self.hotspot_y_spin]
         hotspot_layout.addWidget(QLabel("X"))
         hotspot_layout.addWidget(self.hotspot_x_spin)
         hotspot_layout.addWidget(QLabel("Y"))
@@ -1016,6 +1034,8 @@ class MainWindow(QMainWindow):
         self._refresh_state_labels()
         self.statusBar().showMessage("已恢复系统默认光标。", 3000)
     def _import_custom_image(self) -> None:
+        if self._background_task is not None:
+            return
         file_path, _ = QFileDialog.getOpenFileName(self, "选择自定义图片", "", "Images (*.png *.jpg *.jpeg *.webp)")
         if not file_path:
             return
@@ -1034,19 +1054,43 @@ class MainWindow(QMainWindow):
             self._show_warning(f"导入图片失败：{exc}")
 
     def _remove_custom_background(self) -> None:
+        if self._background_task is not None:
+            return
         if self.current_custom_project is None:
             self._show_information("请先导入一张图片。")
             return
-        try:
-            self.statusBar().showMessage("正在进行自动抠图，首次可能需要下载模型...", 5000)
-            self.context.image_pipeline.remove_background(self.current_custom_project)
+        self._background_task = BackgroundRemovalTask(self.context.image_pipeline, self.current_custom_project, self)
+        self._background_task.finished.connect(self._finish_background_removal)
+        for control in self._custom_controls:
+            control.setEnabled(False)
+        self.custom_bg_status_label.setText("抠图状态：处理中")
+        self.statusBar().showMessage("正在进行自动抠图，首次可能需要下载模型...")
+        self._background_task.start()
+
+    def _finish_background_removal(self) -> None:
+        task = self._background_task
+        if task is None:
+            return
+        self._background_task = None
+        for control in self._custom_controls:
+            control.setEnabled(True)
+        task.deleteLater()
+        if not self._exit_after_background:
             self._refresh_custom_labels()
-            self._update_custom_preview()
-            self.statusBar().showMessage("自动抠图完成。", 3000)
-        except Exception as exc:
-            self._show_warning(f"自动抠图失败：{exc}")
+            if task.error is None:
+                self._update_custom_preview()
+                self.statusBar().showMessage("自动抠图完成。", 3000)
+            else:
+                self.statusBar().showMessage("自动抠图失败，可以重试。", 5000)
+                self._show_warning(f"自动抠图失败：{task.error}")
+        elif self.tray_manager is not None:
+            self.tray_manager.quit_application()
+        else:
+            self.prepare_for_exit()
 
     def _generate_custom_cursor(self) -> None:
+        if self._background_task is not None:
+            return
         if self.current_custom_project is None:
             self._show_information("请先导入一张图片。")
             return
@@ -1158,6 +1202,9 @@ class MainWindow(QMainWindow):
             self._show_warning(f"按程序切换规则无效：{exc}")
             return
 
+        if self.tray_manager is not None and not self.tray_manager.update_hotkey(hotkey_value):
+            self._show_warning("全局快捷键更新失败，原快捷键及设置已保留。")
+            return
         self.context.config.highlight.hotkey = hotkey_value
         self.context.config.highlight.duration_ms = self.duration_spin.value()
         self.context.config.highlight.ring_size = self.ring_size_spin.value()
@@ -1180,12 +1227,10 @@ class MainWindow(QMainWindow):
 
         startup_ok = self.context.startup_manager.set_enabled(self.context.config.startup.launch_at_startup)
         if not startup_ok:
+            self.context.config.startup.launch_at_startup = self.context.startup_manager.is_enabled()
+            if self.startup_checkbox is not None:
+                self.startup_checkbox.setChecked(self.context.config.startup.launch_at_startup)
             self._show_warning("开机启动写入失败，可能受当前 Windows 权限或注册表环境影响。")
-        hotkey_ok = True
-        if self.tray_manager is not None:
-            hotkey_ok = self.tray_manager.update_hotkey(hotkey_value)
-        if not hotkey_ok:
-            self._show_warning("全局快捷键更新失败，请检查快捷键格式或占用情况。")
 
         self.context.config_manager.save(self.context.config)
         app = QApplication.instance()
@@ -1198,6 +1243,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("设置已保存。", 3000)
 
     def _request_uninstall(self) -> None:
+        if self._background_task is not None:
+            self._show_warning("请等待自动抠图完成后再卸载。")
+            return
         if not self.context.uninstall_manager.is_available():
             self._show_warning("当前运行的是源码版或便携版，未检测到安装版卸载程序。")
             return

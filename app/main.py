@@ -57,6 +57,7 @@ def main() -> int:
     context.enhancement_manager.start()
 
     window = MainWindow(context=context)
+    app.aboutToQuit.connect(window.wait_for_background_task)
     tray_manager = TrayHotkeyManager(app=app, window=window, hotkey_sequence=context.config.highlight.hotkey, on_find_mouse=context.overlay_manager.trigger_find_mouse)
     tray_manager.start()
     app.aboutToQuit.connect(tray_manager.stop)

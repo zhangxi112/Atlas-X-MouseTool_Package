@@ -34,7 +34,7 @@ def bootstrap_app() -> AppContext:
     logger_service.configure()
     logger = logger_service.get_logger(__name__)
 
-    cursor_manager = CursorManager()
+    cursor_manager = CursorManager(cache_dir=config_manager.user_data_dir / "builtin_cursors")
     overlay_manager = OverlayManager()
     enhancement_manager = EnhancementManager(cursor_manager=cursor_manager, overlay_manager=overlay_manager, config_provider=lambda: config)
     image_pipeline = ImagePipeline(storage_dir=config_manager.user_data_dir / "custom_cursors", cursor_manager=cursor_manager)
