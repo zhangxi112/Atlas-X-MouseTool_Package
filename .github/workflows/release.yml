@@ -1,0 +1,62 @@
+name: Build and publish Windows release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      PYTHONUTF8: '1'
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          $version = python -c 'from core.constants import APP_VERSION; print(APP_VERSION)'
+          if ($LASTEXITCODE -ne 0 -or $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag does not match APP_VERSION' }
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Install build dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Build and self-test installer and portable package
+        shell: pwsh
+        run: ./scripts/build_release.ps1 -Clean
+      - name: Publish verified assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $folder = "release/$env:RELEASE_VERSION"
+          $notes = "docs/releases/$tag.md"
+          $assets = @("$folder/AtlasXCursorStudio-Setup-$env:RELEASE_VERSION.exe", "$folder/AtlasXCursorStudio-portable-$env:RELEASE_VERSION.zip", "$folder/SHA256SUMS.txt")
+          foreach ($asset in $assets) { if (-not (Test-Path -LiteralPath $asset)) { throw "Missing asset: $asset" } }
+          $draft = gh release view $tag --json isDraft --jq '.isDraft' 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if ($draft -ne 'true') { throw 'Refusing to overwrite a published release' }
+            gh release upload $tag @assets --clobber
+          } else {
+            gh release create $tag @assets --verify-tag --draft --title "Atlas-X Cursor Studio $tag" --notes-file $notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Release asset upload failed' }
+          gh release edit $tag --draft=false --latest --notes-file $notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

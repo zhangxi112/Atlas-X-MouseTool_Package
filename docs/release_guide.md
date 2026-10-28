@@ -1,4 +1,4 @@
-# Atlas-X Cursor Studio 1.0 发布指南
+# Atlas-X Cursor Studio 发布指南
 
 ## 版本与权属
 
@@ -12,11 +12,23 @@
 
 ## 建议发布件
 
-- 安装器：`release\AtlasXCursorStudio-Setup-1.0.exe`
-- 便携版：`release\AtlasXCursorStudio-portable.zip`
+- 安装器：`release\1.0.1\AtlasXCursorStudio-Setup-1.0.1.exe`
+- 便携版：`release\1.0.1\AtlasXCursorStudio-portable-1.0.1.zip`
+- 校验文件：`release\1.0.1\SHA256SUMS.txt`
 - 发布包建议包含 `THIRD_PARTY_NOTICES.md` 和 `licenses` 目录。
 
-## GitHub Release 建议文案
+## 构建与发布
+
+1. 更新 `core/constants.py` 中的 `APP_VERSION`、README 下载链接和 `docs/releases/v版本号.md`。
+2. 运行 `python -m pytest -q` 与 `python -m compileall -q app core services ui tests`。
+3. 运行 `scripts/build_release.ps1 -Clean`。脚本自动从版本常量读取版本，构建到独立目录，运行打包程序 `--self-test`，然后生成便携版、安装器和 SHA-256 校验文件。
+4. 自检覆盖资源、配置读写、光标生成、主窗口和 ONNX 导入，不注册系统快捷键、不修改开机启动、不替换系统光标，不下载模型。
+5. 将变更提交并推送，随后推送同名标签（例如 `v1.0.1`）。GitHub Actions 自动执行测试和打包，先上传为草稿，资产齐备后发布为 Latest。已公开版本不会被工作流覆盖。
+6. 在 Releases 确认可下载的 `.exe`、`.zip` 和 `SHA256SUMS.txt`，核对版本和校验值。多屏、DPI、全屏等行为仍需要实机验证。
+
+当前发布说明见 [v1.0.1](releases/v1.0.1.md)。旧版首次发表信息保留如下，不能用新版本截图替代旧版证据。
+
+## v1.0 首次发表文案（历史记录）
 
 标题：`Atlas-X Cursor Studio v1.0`
 
@@ -33,7 +45,7 @@ Atlas-X Cursor Studio v1.0 发布。
 第三方组件说明：本软件使用 PySide6 / Qt for Python 构建桌面界面。PySide6 Community Edition 按 LGPLv3 路径使用。第三方组件许可证见项目 THIRD_PARTY_NOTICES.md 或发布包 licenses 目录。首次使用自动抠图时可能下载第三方 u2net.onnx 模型，该模型仅作为可选运行资源使用，不属于本项目原创源码。
 ```
 
-发布后保存 GitHub 仓库首页、提交记录、Release 页面和 LICENSE 页面截图，用于证明 2026-04-21 的公开发表事实。
+保留 v1.0 在 2026-04-21 的原始公开发表证据；后续版本的日期以各自的发布记录为准。
 
 ## 第三方组件与 PySide6 合规口径
 

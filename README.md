@@ -2,7 +2,7 @@
 
 Atlas-X Cursor Studio 是一个面向 Windows 的托盘常驻鼠标增强工具，用来让鼠标更容易被看见、更方便切换主题，也更适合多屏、演示和复杂桌面场景。
 
-当前版本：`1.0`
+当前版本：`1.0.1`
 
 ## 软著登记信息
 
@@ -32,13 +32,15 @@ Atlas-X Cursor Studio 是一个面向 Windows 的托盘常驻鼠标增强工具�
 
 ## 下载与使用
 
-推荐优先使用发布页中的这两种文件：
+打开 [最新版本下载页](https://github.com/zhangxi112/Atlas-X-MouseTool_Package/releases/latest)，下载下面任意一种：
 
-- 安装器：`AtlasXCursorStudio-Setup-1.0.exe`
-- 便携版：`AtlasXCursorStudio-portable.zip`
+- [安装器：AtlasXCursorStudio-Setup-1.0.1.exe](https://github.com/zhangxi112/Atlas-X-MouseTool_Package/releases/download/v1.0.1/AtlasXCursorStudio-Setup-1.0.1.exe)
+- [便携版：AtlasXCursorStudio-portable-1.0.1.zip](https://github.com/zhangxi112/Atlas-X-MouseTool_Package/releases/download/v1.0.1/AtlasXCursorStudio-portable-1.0.1.zip)
 
 普通用户优先下载安装器。  
 如果不想安装，可以下载便携版，解压后直接运行。
+
+更新前先从托盘菜单退出旧版，再运行新安装器；用户配置和自定义光标保留。便携版需要完整解压，保留 `_internal` 文件夹。发布页的 `Source code` 是源码，普通使用请选择上面的安装器或便携版。
 
 ## 使用前说明
 
@@ -130,9 +132,14 @@ python -m app.main
 
 预期产物：
 
-- `dist\AtlasXCursorStudio\AtlasXCursorStudio.exe`
-- `release\AtlasXCursorStudio-portable.zip`
-- `release\AtlasXCursorStudio-Setup-1.0.exe`
+- `release\1.0.1\dist\AtlasXCursorStudio\AtlasXCursorStudio.exe`
+- `release\1.0.1\AtlasXCursorStudio-portable-1.0.1.zip`
+- `release\1.0.1\AtlasXCursorStudio-Setup-1.0.1.exe`
+- `release\1.0.1\SHA256SUMS.txt`
+
+完整发布脚本从 `core/constants.py` 读取版本，先运行打包程序自检，再生成压缩包、安装器和校验文件。它使用独立版本目录，保留已有发布包；打包命令失败或自检失败时立即停止。
+
+推送匹配版本号的 `v*` 标签会触发 `.github/workflows/release.yml`，在 Windows 上重新构建、测试并发布 Release。更新源码分支本身不会更新安装包。
 
 ### 测试
 

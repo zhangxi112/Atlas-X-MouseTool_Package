@@ -6,63 +6,63 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$distDir = Join-Path $root "dist\AtlasXCursorStudio"
-$releaseDir = Join-Path $root "release"
-$portableZip = Join-Path $releaseDir "AtlasXCursorStudio-portable.zip"
-$installerScript = Join-Path $PSScriptRoot "installer.iss"
-$installerPath = Join-Path $releaseDir "AtlasXCursorStudio-Setup-1.0.exe"
-
-Write-Host "Building Atlas-X Cursor Studio release..."
-$buildScript = Join-Path $PSScriptRoot "build.ps1"
-if ($Clean) {
-    & $buildScript -Clean
-} else {
-    & $buildScript
-}
-
-if (-not (Test-Path $distDir)) {
-    throw "Missing dist directory: $distDir"
-}
-
-New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
-
-if (-not $SkipPortableZip) {
-    if (Test-Path $portableZip) {
-        Remove-Item $portableZip -Force
+Push-Location $root
+try {
+    $version = (python -c 'from core.constants import APP_VERSION; print(APP_VERSION)')
+    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+$') { throw 'Cannot resolve release version' }
+    $releaseDir = Join-Path $root "release\$version"
+    $distRoot = Join-Path $releaseDir 'dist'
+    $distDir = Join-Path $distRoot 'AtlasXCursorStudio'
+    $portableZip = Join-Path $releaseDir "AtlasXCursorStudio-portable-$version.zip"
+    $installerPath = Join-Path $releaseDir "AtlasXCursorStudio-Setup-$version.exe"
+    foreach ($artifact in @($portableZip, $installerPath)) {
+        if (Test-Path -LiteralPath $artifact) { throw "Preserving existing release artifact: $artifact" }
     }
-    Write-Host "Creating portable package: $portableZip"
-    Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $portableZip -CompressionLevel Optimal
-    if (-not (Test-Path $portableZip)) {
-        throw "Portable package was not created: $portableZip"
+    $iscc = $null
+    if (-not $SkipInstaller) {
+        $isccCandidates = @(
+            (Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source),
+            'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
+            'C:\Program Files\Inno Setup 6\ISCC.exe',
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+        ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique
+        $iscc = $isccCandidates | Select-Object -First 1
+        if (-not $iscc) { throw 'Inno Setup is required. Use -SkipInstaller only when a portable build is intended.' }
     }
+    New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+    & (Join-Path $PSScriptRoot 'build.ps1') -Clean:$Clean -DistPath $distRoot -WorkPath (Join-Path $root "build\release-$version")
+
+    $reportPath = Join-Path $releaseDir ('package-self-test-' + [guid]::NewGuid().ToString('N') + '.json')
+    $exe = Join-Path $distDir 'AtlasXCursorStudio.exe'
+    $check = Start-Process -FilePath $exe -ArgumentList @('--self-test', "`"$reportPath`"") -PassThru -WindowStyle Hidden
+    if (-not $check.WaitForExit(120000)) {
+        $check.Kill()
+        throw 'Packaged application self-test timed out'
+    }
+    if (-not (Test-Path -LiteralPath $reportPath)) { throw "Packaged application self-test produced no report (exit code $($check.ExitCode))" }
+    $report = Get-Content -LiteralPath $reportPath -Encoding UTF8 -Raw | ConvertFrom-Json
+    if ($check.ExitCode -ne 0 -or $report.status -ne 'passed' -or $report.version -ne $version -or -not $report.frozen) {
+        throw "Unexpected package self-test result: $($report | ConvertTo-Json -Compress)"
+    }
+    Write-Host "Packaged application self-test passed: $version"
+    $artifacts = @()
+    if (-not $SkipPortableZip) {
+        Compress-Archive -Path (Join-Path $distDir '*') -DestinationPath $portableZip -CompressionLevel Optimal
+        $artifacts += $portableZip
+    }
+    if (-not $SkipInstaller) {
+        & $iscc "/DAppVersion=$version" "/DDistDir=$distDir" "/DReleaseDir=$releaseDir" (Join-Path $PSScriptRoot 'installer.iss')
+        if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+        $artifacts += $installerPath
+    }
+    $hashes = foreach ($artifact in $artifacts) {
+        if (-not (Test-Path -LiteralPath $artifact) -or (Get-Item -LiteralPath $artifact).Length -eq 0) {
+            throw "Missing or empty artifact: $artifact"
+        }
+        '{0}  {1}' -f (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant(), (Split-Path $artifact -Leaf)
+    }
+    $hashes | Set-Content -LiteralPath (Join-Path $releaseDir 'SHA256SUMS.txt') -Encoding ascii
+    Write-Host "Release artifacts ready: $releaseDir"
+} finally {
+    Pop-Location
 }
-
-if ($SkipInstaller) {
-    Write-Warning "Installer build skipped by parameter."
-    exit 0
-}
-
-$isccCandidates = @(
-    @(
-        (Get-Command ISCC.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue),
-        'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-        'C:\Program Files\Inno Setup 6\ISCC.exe',
-        'C:\Users\zhangxi\AppData\Local\Programs\Inno Setup 6\ISCC.exe'
-    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
-)
-
-if (-not $isccCandidates) {
-    Write-Warning "Inno Setup 未安装，已生成便携压缩包。安装 Inno Setup 6 后重新运行 scripts\build_release.ps1 可生成安装器。"
-    exit 0
-}
-
-$iscc = $isccCandidates[0]
-Write-Host "Building installer with Inno Setup: $iscc"
-& $iscc $installerScript
-if (-not (Test-Path $installerPath)) {
-    throw "Installer build finished but expected output was not found: $installerPath"
-}
-
-Write-Host "Installer build complete. Output directory: release"
-Write-Host "Portable package: $portableZip"
-Write-Host "Installer package: $installerPath"

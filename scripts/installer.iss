@@ -1,10 +1,16 @@
 ﻿#define AppName "Atlas-X Cursor Studio"
-#define AppVersion "1.0"
+#ifndef AppVersion
+  #error Pass /DAppVersion when compiling, or use scripts/build_release.ps1
+#endif
 #define AppPublisher "张希"
 #define AppExeName "AtlasXCursorStudio.exe"
 #define AppId "AtlasXCursorStudio"
-#define DistDir "..\\dist\\AtlasXCursorStudio"
-#define ReleaseDir "..\\release"
+#ifndef DistDir
+  #define DistDir "..\\dist\\AtlasXCursorStudio"
+#endif
+#ifndef ReleaseDir
+  #define ReleaseDir "..\\release"
+#endif
 
 [Setup]
 AppId={#AppId}

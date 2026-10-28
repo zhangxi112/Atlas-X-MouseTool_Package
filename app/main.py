@@ -7,24 +7,20 @@ import logging
 import sys
 import traceback
 
-from PySide6.QtWidgets import QApplication
-
-from app.bootstrap import bootstrap_app
 from core.constants import APP_NAME
-from services.tray_hotkey_manager import TrayHotkeyManager
-from ui.app_styles import apply_app_theme
-from ui.dialog_utils import show_critical
-from ui.main_window import MainWindow
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--startup', action='store_true')
     parser.add_argument('--minimized', action='store_true')
+    parser.add_argument('--self-test', metavar='REPORT_PATH')
     return parser.parse_known_args(sys.argv[1:])[0]
 
 
 def install_exception_hook(context) -> None:
+    from ui.dialog_utils import show_critical
+
     logger = logging.getLogger(__name__)
     default_hook = sys.excepthook
 
@@ -45,6 +41,17 @@ def install_exception_hook(context) -> None:
 
 def main() -> int:
     args = _parse_args()
+    if args.self_test:
+        from app.self_test import run_self_test
+
+        return run_self_test(args.self_test)
+    from PySide6.QtWidgets import QApplication
+
+    from app.bootstrap import bootstrap_app
+    from services.tray_hotkey_manager import TrayHotkeyManager
+    from ui.app_styles import apply_app_theme
+    from ui.main_window import MainWindow
+
     context = bootstrap_app()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
