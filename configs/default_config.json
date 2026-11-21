@@ -20,7 +20,8 @@
     "duration_ms": 1500,
     "ring_size": 220,
     "multi_monitor": true,
-    "hotkey": "F8"
+    "hotkey": "F8",
+    "style": "focus"
   },
   "pointer": {
     "cursor_size_percent": 120,

@@ -80,6 +80,8 @@ class ConfigManager:
             config.pointer.trail_color = PointerSettings().trail_color
         if not config.highlight.hotkey.strip():
             config.highlight.hotkey = HighlightSettings().hotkey
+        if config.highlight.style not in {"focus", "sonar", "quiet"}:
+            config.highlight.style = "focus"
         return config
 
     def save(self, config: AppConfig) -> None:

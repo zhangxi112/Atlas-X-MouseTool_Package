@@ -2,7 +2,7 @@
 
 Atlas-X Cursor Studio 是一个面向 Windows 的托盘常驻鼠标增强工具，用来让鼠标更容易被看见、更方便切换主题，也更适合多屏、演示和复杂桌面场景。
 
-当前版本：`1.0.1`
+当前版本 **v2.0**。动态主题交给 Windows 原生播放，工作台可试用三种定位样式与点击波纹。新增棱镜和轨道两套主题。详见 [v2.0 发布说明](docs/releases/v2.0.md)。
 
 ## 软著登记信息
 
@@ -19,7 +19,7 @@ Atlas-X Cursor Studio 是一个面向 Windows 的托盘常驻鼠标增强工具�
 ## 它能做什么
 
 - 一键切换和恢复系统鼠标主题
-- 提供 10 套内置主题，并支持主体色、描边色、强调色、发光色分别调整
+- 提供 12 套内置主题，并支持主体色、描边色、强调色、发光色分别调整
 - 快捷键找回鼠标位置
 - 快速晃动鼠标时显示尾迹提示
 - 鼠标点击时显示波纹反馈
@@ -34,8 +34,8 @@ Atlas-X Cursor Studio 是一个面向 Windows 的托盘常驻鼠标增强工具�
 
 打开 [最新版本下载页](https://github.com/zhangxi112/Atlas-X-MouseTool_Package/releases/latest)，下载下面任意一种：
 
-- [安装器：AtlasXCursorStudio-Setup-1.0.1.exe](https://github.com/zhangxi112/Atlas-X-MouseTool_Package/releases/download/v1.0.1/AtlasXCursorStudio-Setup-1.0.1.exe)
-- [便携版：AtlasXCursorStudio-portable-1.0.1.zip](https://github.com/zhangxi112/Atlas-X-MouseTool_Package/releases/download/v1.0.1/AtlasXCursorStudio-portable-1.0.1.zip)
+- [安装器：AtlasXCursorStudio-Setup-2.0.exe](https://github.com/zhangxi112/Atlas-X-MouseTool_Package/releases/download/v2.0/AtlasXCursorStudio-Setup-2.0.exe)
+- [便携版：AtlasXCursorStudio-portable-2.0.zip](https://github.com/zhangxi112/Atlas-X-MouseTool_Package/releases/download/v2.0/AtlasXCursorStudio-portable-2.0.zip)
 
 普通用户优先下载安装器。  
 如果不想安装，可以下载便携版，解压后直接运行。
@@ -53,7 +53,7 @@ Atlas-X Cursor Studio 是一个面向 Windows 的托盘常驻鼠标增强工具�
 
 ### 1. 找回鼠标
 
-可以录制一个全局快捷键，在任何时候快速高亮当前鼠标位置。
+工作台可选择聚焦准星、声呐波环或静态标记。单击画布试用点击波纹，按空格预览定位效果。使用已录制的全局快捷键即可在桌面找回鼠标。
 
 ### 2. 内置主题
 
@@ -132,14 +132,14 @@ python -m app.main
 
 预期产物：
 
-- `release\1.0.1\dist\AtlasXCursorStudio\AtlasXCursorStudio.exe`
-- `release\1.0.1\AtlasXCursorStudio-portable-1.0.1.zip`
-- `release\1.0.1\AtlasXCursorStudio-Setup-1.0.1.exe`
-- `release\1.0.1\SHA256SUMS.txt`
+- `release\2.0\dist\AtlasXCursorStudio\AtlasXCursorStudio.exe`
+- `release\2.0\AtlasXCursorStudio-portable-2.0.zip`
+- `release\2.0\AtlasXCursorStudio-Setup-2.0.exe`
+- `release\2.0\SHA256SUMS.txt`
 
 完整发布脚本从 `core/constants.py` 读取版本，先运行打包程序自检，再生成压缩包、安装器和校验文件。它使用独立版本目录，保留已有发布包；打包命令失败或自检失败时立即停止。
 
-推送匹配版本号的 `v*` 标签会触发 `.github/workflows/release.yml`，在 Windows 上重新构建、测试并发布 Release。更新源码分支本身不会更新安装包。
+推送匹配版本号的 `v*` 标签会触发 `.github/workflows/release.yml`，在 Windows 上重新构建、测试并发布 Release。也可在 main 提交标题恰为 `Release v2.0`（版本须匹配）的发布提交。工作流在检查通过后为该提交建立版本标签并上传安装包。
 
 ### 测试
 

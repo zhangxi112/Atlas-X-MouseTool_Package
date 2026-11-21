@@ -9,7 +9,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
     $version = (python -c 'from core.constants import APP_VERSION; print(APP_VERSION)')
-    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+\.\d+$') { throw 'Cannot resolve release version' }
+    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^\d+\.\d+(?:\.\d+)?$') { throw 'Cannot resolve release version' }
     $releaseDir = Join-Path $root "release\$version"
     $distRoot = Join-Path $releaseDir 'dist'
     $distDir = Join-Path $distRoot 'AtlasXCursorStudio'

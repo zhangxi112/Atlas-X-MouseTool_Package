@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QPoint, QRect, QTimer, Qt
-from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPainter, QPainterPath, QPen, QRadialGradient
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPainter, QPainterPath, QPen, QRadialGradient, QRegion, QScreen
 from PySide6.QtWidgets import QApplication, QWidget
+
+from ui.pointer_effects import draw_locator, draw_ripple
 
 
 @dataclass(slots=True)
@@ -44,6 +46,7 @@ class EffectOverlay(QWidget):
             | Qt.WindowType.Tool
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.WindowDoesNotAcceptFocus
+            | Qt.WindowType.WindowTransparentForInput
         )
         self.setGeometry(screen_geometry)
         self._find_center = QPoint(0, 0)
@@ -51,6 +54,9 @@ class EffectOverlay(QWidget):
         self._find_ring_size = 220
         self._find_started_at = 0.0
         self._find_active = False
+        self._find_style = 'focus'
+        self._find_color = QColor('#5EEAD4')
+        self._previous_region = QRegion()
         self._ripples: list[RippleState] = []
         self._trails: list[TrailState] = []
         self._timer = QTimer(self)
@@ -61,7 +67,9 @@ class EffectOverlay(QWidget):
         self._follow_pointer_size = 0
         self._follow_pointer_color = QColor(34, 211, 238)
 
-    def start_find_effect(self, global_cursor_pos: QPoint, duration_ms: int, ring_size: int) -> None:
+    def start_find_effect(self, global_cursor_pos: QPoint, duration_ms: int, ring_size: int, style: str, color: QColor) -> None:
+        self._find_style = style
+        self._find_color = color
         self._find_duration_ms = duration_ms
         self._find_ring_size = ring_size
         self._find_center = global_cursor_pos - self.geometry().topLeft()
@@ -70,6 +78,7 @@ class EffectOverlay(QWidget):
         self._ensure_running()
 
     def add_click_ripple(self, global_cursor_pos: QPoint, duration_ms: int, size: int, color: QColor) -> None:
+        self._ripples = self._ripples[-23:]
         self._ripples.append(RippleState(global_cursor_pos - self.geometry().topLeft(), time.perf_counter(), duration_ms, size, color))
         self._ensure_running()
 
@@ -81,27 +90,75 @@ class EffectOverlay(QWidget):
         if replace:
             self._trails = [state]
         else:
+            self._trails = self._trails[-11:]
             self._trails.append(state)
         self._ensure_running()
 
     def set_follow_pointer(self, global_cursor_pos: QPoint, size: int, color: QColor) -> None:
+        position = global_cursor_pos - self.geometry().topLeft()
+        if self._follow_pointer and (position, size, color) == (self._follow_pointer_pos, self._follow_pointer_size, self._follow_pointer_color):
+            return
         self._follow_pointer = True
-        self._follow_pointer_pos = global_cursor_pos - self.geometry().topLeft()
+        self._follow_pointer_pos = position
         self._follow_pointer_size = size
         self._follow_pointer_color = color
         self._ensure_running()
 
     def clear_follow_pointer(self) -> None:
-        self._follow_pointer = False
-        if not self._find_active and not self._ripples and not self._trails and not self._follow_pointer:
-            self.hide()
+        if self._follow_pointer:
+            self._follow_pointer = False
+            self._present()
+
+    def reset(self) -> None:
+        self._find_active = self._follow_pointer = False
+        self._ripples.clear()
+        self._trails.clear()
+        self._timer.stop()
+        self._previous_region = QRegion()
+        self.hide()
+
+    @staticmethod
+    def _around(point: QPoint, extent: float) -> QRect:
+        radius = int(extent) + 4
+        return QRect(point.x() - radius, point.y() - radius, 2 * radius + 1, 2 * radius + 1)
+
+    def _effect_region(self) -> QRegion:
+        region = QRegion()
+        if self._find_active:
+            region |= self._around(self._find_center, self._find_ring_size * 1.1)
+        for ripple in self._ripples:
+            region |= self._around(ripple.center, ripple.size)
+        for trail in self._trails:
+            bounds = QRect(trail.points[0], trail.points[0])
+            for point in trail.points[1:]:
+                bounds = bounds.united(QRect(point, point))
+            margin = int(max(30, trail.size * 0.45))
+            region |= bounds.adjusted(-margin, -margin, margin, margin)
+        if self._follow_pointer:
+            region |= self._around(self._follow_pointer_pos, self._follow_pointer_size)
+        return region.intersected(self.rect())
+
+    def _present(self) -> None:
+        region = self._effect_region()
+        dirty = self._previous_region.united(region)
+        self._previous_region = region
+        if not dirty.isEmpty():
+            self.update(dirty)
+        if not (self._ripples or self._trails or self._find_active):
+            self._timer.stop()
+            if not self._follow_pointer:
+                self.hide()
+        elif self._find_active and self._find_style == "quiet" and not (self._ripples or self._trails):
+            remaining = self._find_duration_ms - (time.perf_counter() - self._find_started_at) * 1000
+            self._timer.start(max(1, int(remaining) + 1))
+        elif not self._timer.isActive() or self._timer.interval() != 16:
+            self._timer.start(16)
 
     def _ensure_running(self) -> None:
-        self.show()
-        self.raise_()
-        if not self._timer.isActive():
-            self._timer.start()
-        self.update()
+        if not self.isVisible():
+            self.show()
+            self.raise_()
+        self._present()
 
     def _advance(self) -> None:
         now = time.perf_counter()
@@ -109,17 +166,15 @@ class EffectOverlay(QWidget):
             self._find_active = False
         self._ripples = [ripple for ripple in self._ripples if (now - ripple.started_at) * 1000 < ripple.duration_ms]
         self._trails = [trail for trail in self._trails if (now - trail.started_at) * 1000 < trail.duration_ms]
-        if not self._find_active and not self._ripples and not self._trails and not self._follow_pointer:
-            self._timer.stop()
-            self.hide()
-            return
-        self.update()
+        self._present()
 
     def paintEvent(self, event) -> None:  # noqa: N802
-        del event
         if not self.isVisible():
             return
         painter = QPainter(self)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        painter.fillRect(event.rect(), Qt.GlobalColor.transparent)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         for trail in self._trails:
             self._paint_motion_trail(painter, trail)
@@ -133,24 +188,7 @@ class EffectOverlay(QWidget):
 
     def _paint_find_effect(self, painter: QPainter) -> None:
         progress = min(1.0, max(0.0, ((time.perf_counter() - self._find_started_at) * 1000) / self._find_duration_ms))
-        gradient = QRadialGradient(self._find_center, self._find_ring_size * 1.1)
-        gradient.setColorAt(0.0, QColor(255, 245, 157, int(175 * (1.0 - progress * 0.65))))
-        gradient.setColorAt(0.45, QColor(253, 224, 71, int(90 * (1.0 - progress * 0.55))))
-        gradient.setColorAt(1.0, QColor(253, 224, 71, 0))
-        painter.setBrush(gradient)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(self._find_center, int(self._find_ring_size * 1.1), int(self._find_ring_size * 1.1))
-        primary_radius = int((self._find_ring_size * 0.35) + (self._find_ring_size * 0.85 * progress))
-        secondary_progress = max(0.0, progress - 0.25) / 0.75
-        secondary_radius = int((self._find_ring_size * 0.2) + (self._find_ring_size * 0.75 * secondary_progress))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(248, 250, 252, int(220 * (1.0 - progress))), 6))
-        painter.drawEllipse(self._find_center, primary_radius, primary_radius)
-        painter.setPen(QPen(QColor(14, 165, 233, int(180 * (1.0 - secondary_progress))), 4))
-        painter.drawEllipse(self._find_center, secondary_radius, secondary_radius)
-        painter.setPen(QPen(QColor(15, 23, 42, int(230 * (1.0 - progress * 0.8))), 3))
-        painter.setBrush(QColor(250, 204, 21, int(255 * (1.0 - progress * 0.5))))
-        painter.drawEllipse(self._find_center, 10, 10)
+        draw_locator(painter, self._find_center, self._find_ring_size, progress, self._find_color, self._find_style)
 
     def _paint_follow_pointer(self, painter: QPainter) -> None:
         size = max(120, self._follow_pointer_size)
@@ -201,8 +239,9 @@ class EffectOverlay(QWidget):
 
     def _path_for_points(self, points: list[QPoint]) -> QPainterPath:
         path = QPainterPath(points[0])
-        for point in points[1:]:
-            path.lineTo(point)
+        for previous, current in zip(points, points[1:]):
+            path.quadTo(previous, (previous + current) * 0.5)
+        path.lineTo(points[-1])
         return path
 
     def _paint_glow_trail(self, painter: QPainter, trail: TrailState, fade: float) -> None:
@@ -275,20 +314,7 @@ class EffectOverlay(QWidget):
 
     def _paint_click_ripple(self, painter: QPainter, ripple: RippleState) -> None:
         progress = min(1.0, max(0.0, ((time.perf_counter() - ripple.started_at) * 1000) / ripple.duration_ms))
-        radius = int((ripple.size * 0.12) + (ripple.size * 0.88 * progress))
-        glow_radius = int(radius * 1.35)
-        gradient = QRadialGradient(ripple.center, glow_radius)
-        gradient.setColorAt(0.0, QColor(ripple.color.red(), ripple.color.green(), ripple.color.blue(), int(70 * (1.0 - progress))))
-        gradient.setColorAt(0.6, QColor(ripple.color.red(), ripple.color.green(), ripple.color.blue(), int(38 * (1.0 - progress))))
-        gradient.setColorAt(1.0, QColor(ripple.color.red(), ripple.color.green(), ripple.color.blue(), 0))
-        painter.setBrush(gradient)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(ripple.center, glow_radius, glow_radius)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor(ripple.color.red(), ripple.color.green(), ripple.color.blue(), int(210 * (1.0 - progress))), 4))
-        painter.drawEllipse(ripple.center, radius, radius)
-        painter.setPen(QPen(QColor(248, 250, 252, int(160 * (1.0 - progress))), 2))
-        painter.drawEllipse(ripple.center, int(radius * 0.62), int(radius * 0.62))
+        draw_ripple(painter, ripple.center, ripple.size, progress, ripple.color)
 
 
 class OverlayManager:
@@ -302,7 +328,7 @@ class OverlayManager:
         self.logger = logging.getLogger(__name__)
         self.app: QApplication | None = None
         self.config_provider: Any = None
-        self.overlays: dict[str, EffectOverlay] = {}
+        self.overlays: dict[QScreen, EffectOverlay] = {}
         self.effects_suspended = False
         self.pointer_timer = QTimer()
         self.pointer_timer.setInterval(16)
@@ -311,16 +337,21 @@ class OverlayManager:
         self.follow_pointer_size_percent = 100
 
     def attach_application(self, app: QApplication, config_provider) -> None:
+        if self.app is not app:
+            if self.app is not None:
+                self.app.screenRemoved.disconnect(self._screen_removed)
+            app.screenRemoved.connect(self._screen_removed)
         self.app = app
         self.config_provider = config_provider
 
     def set_effects_suspended(self, suspended: bool) -> None:
         self.effects_suspended = suspended
         if suspended:
+            self.pointer_timer.stop()
             for overlay in self.overlays.values():
-                overlay.hide()
+                overlay.reset()
         elif self.follow_pointer_enabled:
-            self._update_follow_pointer()
+            self.set_follow_pointer_mode(True, self.follow_pointer_size_percent)
 
     def set_follow_pointer_mode(self, enabled: bool, size_percent: int) -> None:
         self.follow_pointer_enabled = enabled
@@ -346,7 +377,8 @@ class OverlayManager:
         screen = self._resolve_screen(cursor_pos)
         if screen is None:
             return
-        self._get_overlay(screen.name(), screen.geometry()).start_find_effect(cursor_pos, settings.duration_ms, settings.ring_size)
+        self._get_overlay(screen).start_find_effect(cursor_pos, settings.duration_ms, settings.ring_size,
+                                                  settings.style, QColor(config.pointer.trail_color))
 
     def trigger_motion_trail(self, global_points: list[QPoint], replace: bool = False) -> None:
         if self.app is None or self.config_provider is None or not global_points:
@@ -359,14 +391,17 @@ class OverlayManager:
             return
         color = QColor(config.pointer.trail_color)
         style = config.pointer.trail_style or "glow"
-        self._get_overlay(screen.name(), screen.geometry()).add_motion_trail(
-            global_points,
-            max(380, min(1200, config.highlight.duration_ms)),
-            max(60, config.highlight.ring_size),
-            color,
-            style,
-            replace=replace,
-        )
+        size = max(60, config.highlight.ring_size)
+        bounds = QRect(global_points[0], global_points[0])
+        for point in global_points[1:]:
+            bounds = bounds.united(QRect(point, point))
+        margin = int(max(30, size * 0.45))
+        bounds.adjust(-margin, -margin, margin, margin)
+        screens = self.app.screens() if config.highlight.multi_monitor else [screen]
+        for target in screens:
+            if target.geometry().intersects(bounds):
+                self._get_overlay(target).add_motion_trail(global_points, max(380, min(1200, config.highlight.duration_ms)),
+                                                           size, color, style, replace=replace)
 
     def trigger_click_ripple(self, global_cursor_pos: QPoint | None = None, button: str = "left") -> None:
         if self.app is None or self.config_provider is None:
@@ -375,19 +410,27 @@ class OverlayManager:
         settings = config.click_ripple
         if self.effects_suspended or not settings.enabled:
             return
-        cursor_pos = global_cursor_pos or QCursor.pos()
+        cursor_pos = global_cursor_pos if global_cursor_pos is not None else QCursor.pos()
         screen = self._resolve_screen(cursor_pos)
         if screen is None:
             return
         color = self.CLICK_COLORS.get(button, self.CLICK_COLORS["left"])
-        self._get_overlay(screen.name(), screen.geometry()).add_click_ripple(cursor_pos, settings.duration_ms, settings.size, color)
+        self._get_overlay(screen).add_click_ripple(cursor_pos, settings.duration_ms, settings.size, color)
 
     def shutdown(self) -> None:
         self.pointer_timer.stop()
-        for overlay in self.overlays.values():
-            overlay.hide()
+        if self.app is not None:
+            self.app.screenRemoved.disconnect(self._screen_removed)
+        for screen in list(self.overlays):
+            self._screen_removed(screen)
+        self.app = None
+
+    def _screen_removed(self, screen: QScreen) -> None:
+        overlay = self.overlays.pop(screen, None)
+        if overlay is not None:
+            overlay.reset()
             overlay.close()
-        self.overlays.clear()
+            overlay.deleteLater()
 
     def _update_follow_pointer(self) -> None:
         if self.app is None or self.config_provider is None or not self.follow_pointer_enabled or self.effects_suspended:
@@ -400,10 +443,10 @@ class OverlayManager:
         max_size = int(min(screen_geometry.width(), screen_geometry.height()) * 0.6)
         visual_size = min(max_size, max(180, int(self.follow_pointer_size_percent * 0.7)))
         color = QColor(self.config_provider().pointer.trail_color)
-        for name, overlay in self.overlays.items():
-            if name != screen.name():
+        for other_screen, overlay in self.overlays.items():
+            if other_screen != screen:
                 overlay.clear_follow_pointer()
-        self._get_overlay(screen.name(), screen_geometry).set_follow_pointer(cursor_pos, visual_size, color)
+        self._get_overlay(screen).set_follow_pointer(cursor_pos, visual_size, color)
 
     def _resolve_screen(self, cursor_pos: QPoint):
         if self.app is None:
@@ -413,11 +456,15 @@ class OverlayManager:
             return self.app.primaryScreen()
         return QGuiApplication.screenAt(cursor_pos) or self.app.primaryScreen()
 
-    def _get_overlay(self, screen_name: str, screen_geometry: QRect) -> EffectOverlay:
-        overlay = self.overlays.get(screen_name)
+    def _get_overlay(self, screen: QScreen) -> EffectOverlay:
+        geometry = screen.geometry()
+        overlay = self.overlays.get(screen)
         if overlay is None:
-            overlay = EffectOverlay(screen_geometry)
-            self.overlays[screen_name] = overlay
-        else:
-            overlay.setGeometry(screen_geometry)
+            overlay = EffectOverlay(geometry)
+            overlay.setScreen(screen)
+            overlay.setGeometry(geometry)
+            self.overlays[screen] = overlay
+        elif overlay.geometry() != geometry:
+            overlay.reset()
+            overlay.setGeometry(geometry)
         return overlay

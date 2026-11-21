@@ -23,9 +23,11 @@ def run_self_test(report_path: str | Path) -> int:
         from PySide6.QtWidgets import QApplication
 
         from app.bootstrap import AppContext
+        from app.instance import StudioInstance
+        from core.builtin_themes import BUILTIN_THEMES
         from core.constants import APP_VERSION, DEFAULT_CONFIG_PATH
         from services.config_manager import ConfigManager
-        from services.cursor_manager import CursorManager
+        from services.cursor_manager import CursorManager, IMAGE_CURSOR, LR_LOADFROMFILE, USER32
         from services.enhancement_manager import EnhancementManager
         from services.image_pipeline import ImagePipeline
         from services.logger import LoggerService
@@ -46,6 +48,10 @@ def run_self_test(report_path: str | Path) -> int:
             os.environ["APPDATA"] = directory
             os.environ["LOCALAPPDATA"] = directory
             config_manager = ConfigManager()
+            instance = StudioInstance(config_manager.user_data_dir)
+            if not instance.acquire(show_existing=False):
+                raise RuntimeError("Could not initialize isolated instance")
+            instance.close()
             config = config_manager.load()
             config_manager.save(config)
             if config_manager.load() != config:
@@ -54,8 +60,16 @@ def run_self_test(report_path: str | Path) -> int:
             cursor_manager.apply_cursor_file = disallow_system_change
             cursor_manager.restore_system_default = disallow_system_change
             assets = cursor_manager.list_builtin_themes()
-            if len(assets) != 10 or not all(asset.cursor_path.is_relative_to(cursor_manager.bundled_dir) for asset in assets):
+            if len(assets) != len(BUILTIN_THEMES) or not all(asset.cursor_path.is_relative_to(cursor_manager.bundled_dir) for asset in assets):
                 raise RuntimeError("Bundled cursor assets are incomplete")
+            animation = cursor_manager.get_animated_cursor_path("orbit", 100, None, 180)
+            if not animation or animation.read_bytes()[8:12] != b"ACON":
+                raise RuntimeError("Native cursor animation is missing")
+            if USER32 is not None:
+                cursor_handle = USER32.LoadImageW(None, str(animation), IMAGE_CURSOR, 0, 0, LR_LOADFROMFILE)
+                if not cursor_handle:
+                    raise RuntimeError("Windows failed to decode the generated animation")
+                USER32.DestroyCursor(cursor_handle)
             pipeline = ImagePipeline(config_manager.user_data_dir / "custom_cursors", cursor_manager)
             source = Path(directory) / "sample.png"
             Image.new("RGBA", (32, 32), (255, 0, 0, 255)).save(source)
@@ -76,16 +90,21 @@ def run_self_test(report_path: str | Path) -> int:
             context = AppContext(config_manager, LoggerService(config_manager.user_log_dir), config,
                                  cursor_manager, overlay, enhancement, pipeline, startup, uninstall)
             window = MainWindow(context)
-            if window.theme_list.count() != 10 or window.hotkey_edit.keySequence().isEmpty():
+            if window.theme_list.count() != len(assets) or window.hotkey_edit.keySequence().isEmpty():
                 raise RuntimeError("Main window initialization failed")
+            window.show()
+            window.effect_preview.play()
             app.processEvents()
+            if window.effect_preview.grab().isNull():
+                raise RuntimeError("Effect preview did not render")
             window.prepare_for_exit()
             window = None
             enhancement.stop()
             overlay.shutdown()
             report.update(status="passed", builtin_themes=len(assets),
                           onnx_providers=onnxruntime.get_available_providers(),
-                          checks=["bundled_resources", "configuration", "cursor_generation", "main_window", "onnx_import"])
+                          checks=["bundled_resources", "configuration", "single_instance", "cursor_generation",
+                                  "native_animation", "effect_preview", "main_window", "onnx_import"])
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:

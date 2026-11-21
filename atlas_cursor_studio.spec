@@ -2,6 +2,8 @@
 
 from pathlib import Path
 from importlib.metadata import distribution
+from PyInstaller.utils.win32.versioninfo import FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo, VarStruct, VSVersionInfo
+from core.constants import APP_NAME, APP_VERSION
 
 project_root = Path.cwd()
 datas = [
@@ -77,6 +79,21 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+parts = tuple(map(int, APP_VERSION.split(".")))
+windows_version = parts + (0,) * (4 - len(parts))
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=windows_version, prodvers=windows_version, fileType=1),
+    kids=[
+        StringFileInfo([StringTable("080404B0", [
+            StringStruct("FileDescription", APP_NAME),
+            StringStruct("ProductName", APP_NAME),
+            StringStruct("FileVersion", APP_VERSION),
+            StringStruct("ProductVersion", APP_VERSION),
+            StringStruct("OriginalFilename", "AtlasXCursorStudio.exe"),
+        ])]),
+        VarFileInfo([VarStruct("Translation", [0x0804, 1200])]),
+    ],
+)
 exe = EXE(
     pyz,
     a.scripts,
@@ -88,6 +105,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    version=version_info,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

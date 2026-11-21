@@ -49,7 +49,7 @@ def build_stylesheet(mode: str) -> str:
             "border_soft": "rgba(15, 23, 42, 0.06)",
             "text": "#0F172A",
             "muted": "rgba(51, 65, 85, 0.78)",
-            "accent": "#0EA5E9",
+            "accent": "#106C66",
             "accent_strong": "#0284C7",
             "accent_soft": "rgba(14, 165, 233, 0.12)",
             "input": "rgba(255, 255, 255, 0.95)",
@@ -77,14 +77,14 @@ def build_stylesheet(mode: str) -> str:
         margin-top: 10px;
         padding: 8px 0 0 0;
     }}
-    QFrame, QGroupBox {{
+    QGroupBox {{
         background: {colors['panel']};
-        border: 1px solid {colors['border_soft']};
-        border-radius: 22px;
+        border: 1px solid {colors['border']};
+        border-radius: 14px;
     }}
     QGroupBox {{
         margin-top: 18px;
-        padding: 18px 18px 16px 18px;
+        padding: 13px 15px 12px 15px;
         font-weight: 600;
     }}
     QGroupBox::title {{
@@ -94,9 +94,8 @@ def build_stylesheet(mode: str) -> str:
         top: 1px;
         padding: 3px 10px;
         border-radius: 10px;
-        color: {colors['text']};
-        background: {colors['surface']};
-        border: 1px solid {colors['border']};
+        color: {colors['accent']};
+        background: transparent;
     }}
     QPushButton {{
         background: {colors['panel_soft']};
@@ -124,8 +123,18 @@ def build_stylesheet(mode: str) -> str:
     }}
     QLabel {{
         background: transparent;
+        border: none;
         color: {colors['text']};
     }}
+    QLabel#studioBrand {{ font-size: 20px; font-weight: 650; }}
+    QLabel#studioVersion {{ color: {colors['muted']}; font-size: 13px; padding: 0 6px; }}
+    QLabel#pageTitle {{ font-size: 25px; font-weight: 700; }}
+    QLabel#stateTitle {{ font-size: 19px; font-weight: 650; }}
+    QLabel#muted {{ color: {colors['muted']}; }}
+    QPushButton#primaryAction {{
+        background: #78E2C6; color: #0B2823; border: 1px solid #5AC8AA; font-weight: 650;
+    }}
+    QPushButton#primaryAction:hover {{ background: #9AEBD5; }}
     QTextEdit, QListWidget, QLineEdit, QSpinBox, QComboBox, QKeySequenceEdit {{
         background: {colors['input']};
         border: 1px solid {colors['border']};

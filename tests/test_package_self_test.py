@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 from core.constants import APP_VERSION, ROOT_DIR
+from core.builtin_themes import BUILTIN_THEMES
 
 
 def test_package_self_test_exits_and_writes_versioned_report(tmp_path):
@@ -16,7 +17,8 @@ def test_package_self_test_exits_and_writes_versioned_report(tmp_path):
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert payload["status"] == "passed"
     assert payload["version"] == APP_VERSION
-    assert payload["builtin_themes"] == 10
+    assert payload["builtin_themes"] == len(BUILTIN_THEMES)
+    assert {"native_animation", "effect_preview"} <= set(payload["checks"])
     assert payload["frozen"] is False
     assert not Path(env["APPDATA"]).exists()
     assert not Path(env["LOCALAPPDATA"]).exists()

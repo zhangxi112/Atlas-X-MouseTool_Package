@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSignalBlocker, Qt
-from PySide6.QtGui import QCloseEvent, QColor, QImage, QKeySequence, QPixmap
+from PySide6.QtCore import QPointF, QSignalBlocker, QSize, Qt
+from PySide6.QtGui import QCloseEvent, QColor, QIcon, QImage, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -41,6 +41,8 @@ from services.image_pipeline import CursorProject
 from services.tray_hotkey_manager import describe_hotkey_sequence, parse_hotkey_sequence
 from ui.app_styles import apply_app_theme
 from ui.background_removal import BackgroundRemovalTask
+from ui.effect_preview import EffectPreview
+from ui.pointer_effects import LOCATOR_STYLES
 from ui.dialog_utils import pick_color, show_information, show_question, show_warning
 from ui.icon_factory import create_app_icon
 
@@ -146,9 +148,9 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setWindowIcon(create_app_icon())
-        self.setMinimumSize(960, 720)
+        self.setMinimumSize(840, 600)
         self.setMaximumSize(16777215, 16777215)
-        self.resize(1220, 880)
+        self.resize(1120, 800)
         self._build_ui()
         self._set_hotkey_widgets(self.context.config.highlight.hotkey)
         self._refresh_theme_list_selection()
@@ -189,7 +191,25 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("应用已最小化到托盘。", 3000)
 
     def _build_ui(self) -> None:
-        self.setCentralWidget(self._create_tabs())
+        shell = QWidget()
+        shell.setObjectName("studioShell")
+        layout = QVBoxLayout(shell)
+        layout.setContentsMargins(18, 12, 18, 0)
+        layout.setSpacing(7)
+        brand = QHBoxLayout()
+        icon = QLabel()
+        icon.setPixmap(self.windowIcon().pixmap(32, 32))
+        brand.addWidget(icon)
+        name = QLabel(APP_NAME)
+        name.setObjectName("studioBrand")
+        brand.addWidget(name)
+        version = QLabel(f"v{APP_VERSION}")
+        version.setObjectName("studioVersion")
+        brand.addWidget(version)
+        brand.addStretch()
+        layout.addLayout(brand)
+        layout.addWidget(self._create_tabs(), 1)
+        self.setCentralWidget(shell)
         status_bar = QStatusBar(self)
         status_bar.showMessage(f"{APP_NAME} 已启动。")
         self.setStatusBar(status_bar)
@@ -199,7 +219,7 @@ class MainWindow(QMainWindow):
         tabs.setDocumentMode(True)
         tabs.setUsesScrollButtons(True)
         tabs.tabBar().setDrawBase(False)
-        tabs.addTab(self._build_home_page(), "首页")
+        tabs.addTab(self._build_home_page(), "工作台")
         tabs.addTab(self._build_theme_page(), "主题")
         tabs.addTab(self._build_custom_page(), "自定义")
         tabs.addTab(self._build_settings_page(), "设置")
@@ -209,94 +229,101 @@ class MainWindow(QMainWindow):
     def _build_home_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(12)
+        header = QHBoxLayout()
+        title = QLabel("指针工作台")
+        title.setObjectName("pageTitle")
+        header.addWidget(title, 1)
+        header.addLayout(self._build_theme_mode_switcher(home=True))
+        layout.addLayout(header)
 
-        hero = QFrame()
-        hero_layout = QVBoxLayout(hero)
-        title = QLabel(APP_NAME)
-        title.setStyleSheet("font-size: 28px; font-weight: 700;")
-        subtitle = QLabel("Windows 托盘常驻鼠标增强工具")
-        subtitle.setStyleSheet("font-size: 14px; color: #475569;")
-        hero_layout.addWidget(title)
-        hero_layout.addWidget(subtitle)
-        layout.addWidget(hero)
+        columns = QHBoxLayout()
+        columns.setSpacing(14)
+        studio = QGroupBox("视效预览")
+        preview_layout = QVBoxLayout(studio)
+        self.effect_preview = EffectPreview(lambda: self.context.config)
+        preview_layout.addWidget(self.effect_preview, 1)
+        help_text = QLabel("单击画布试用点击波纹，按空格预览定位。")
+        help_text.setObjectName("muted")
+        preview_layout.addWidget(help_text)
+        controls = QHBoxLayout()
+        self.locator_style_combo = QComboBox()
+        self.locator_style_combo.setAccessibleName("定位样式")
+        for key, label in LOCATOR_STYLES:
+            self.locator_style_combo.addItem(label, key)
+        self.locator_style_combo.setCurrentIndex(self.locator_style_combo.findData(self.context.config.highlight.style))
+        self.locator_style_combo.currentIndexChanged.connect(self._change_locator_style)
+        controls.addWidget(self.locator_style_combo, 1)
+        preview_button = QPushButton("预览定位")
+        preview_button.setObjectName("primaryAction")
+        preview_button.clicked.connect(lambda: self.effect_preview.play())
+        controls.addWidget(preview_button)
+        desktop_button = QPushButton("在桌面试放")
+        desktop_button.clicked.connect(self.context.overlay_manager.trigger_find_mouse)
+        controls.addWidget(desktop_button)
+        preview_layout.addLayout(controls)
+        columns.addWidget(studio, 3)
 
-        state_box = QGroupBox("当前状态")
+        state_box = QGroupBox("运行状态")
         state_layout = QVBoxLayout(state_box)
         self.current_theme_label = QLabel()
-        self.current_hotkey_label = QLabel()
-        self.current_tray_label = QLabel()
-        self.current_process_label = QLabel()
+        self.current_theme_label.setObjectName("stateTitle")
         self.current_runtime_label = QLabel()
-        for label in (self.current_theme_label, self.current_hotkey_label, self.current_tray_label, self.current_process_label, self.current_runtime_label):
+        self.current_hotkey_label = QLabel()
+        self.current_process_label = QLabel()
+        self.current_tray_label = QLabel()
+        for label in (self.current_theme_label, self.current_runtime_label, self.current_hotkey_label,
+                      self.current_process_label, self.current_tray_label):
             label.setWordWrap(True)
             state_layout.addWidget(label)
-        layout.addWidget(state_box)
+        state_layout.addStretch()
+        restore = QPushButton("恢复系统光标")
+        restore.clicked.connect(self._restore_system_default)
+        state_layout.addWidget(restore)
+        columns.addWidget(state_box, 2)
+        layout.addLayout(columns)
 
-        quick_box = QGroupBox("快捷操作")
-        quick_layout = QVBoxLayout(quick_box)
-
-        theme_row = QHBoxLayout()
-        self.quick_theme_label = QLabel("快速主题切换")
-        prev_theme_button = QPushButton("上一个主题")
-        prev_theme_button.clicked.connect(lambda: self._cycle_theme_selection(-1))
-        next_theme_button = QPushButton("下一个主题")
-        next_theme_button.clicked.connect(lambda: self._cycle_theme_selection(1))
-        apply_theme_button = QPushButton("应用当前选择")
-        apply_theme_button.clicked.connect(self._apply_selected_theme)
+        theme_box = QGroupBox("试选主题")
+        theme_row = QHBoxLayout(theme_box)
+        self.quick_theme_label = QLabel()
+        self.quick_theme_label.setWordWrap(True)
         theme_row.addWidget(self.quick_theme_label, 1)
-        theme_row.addWidget(prev_theme_button)
-        theme_row.addWidget(next_theme_button)
-        theme_row.addWidget(apply_theme_button)
-        quick_layout.addLayout(theme_row)
+        for text, step in (("上一个", -1), ("下一个", 1)):
+            button = QPushButton(text)
+            button.clicked.connect(lambda _checked=False, direction=step: self._cycle_theme_selection(direction))
+            theme_row.addWidget(button)
+        apply_button = QPushButton("应用所选主题")
+        apply_button.clicked.connect(self._apply_selected_theme)
+        theme_row.addWidget(apply_button)
+        layout.addWidget(theme_box)
 
-        quick_hotkey_box = QGroupBox("快速更改找回鼠标快捷键")
-        quick_hotkey_layout = QVBoxLayout(quick_hotkey_box)
-        quick_hotkey_layout.addWidget(QLabel("点击录制框后直接按键，不需要手动输入。推荐 F8、Shift+F8 这类一键或双键组合。"))
-        quick_hotkey_row = QHBoxLayout()
+        hotkeys = QGroupBox("找回鼠标快捷键")
+        hotkey_layout = QVBoxLayout(hotkeys)
+        hotkey_row = QHBoxLayout()
         self.quick_hotkey_edit = QKeySequenceEdit()
         self._configure_hotkey_editor(self.quick_hotkey_edit)
-        record_hotkey_button = QPushButton("录制")
-        record_hotkey_button.clicked.connect(lambda: self._focus_hotkey_editor(self.quick_hotkey_edit))
-        apply_hotkey_button = QPushButton("应用快捷键")
-        apply_hotkey_button.clicked.connect(self._apply_quick_hotkey)
-        quick_hotkey_row.addWidget(self.quick_hotkey_edit, 1)
-        quick_hotkey_row.addWidget(record_hotkey_button)
-        quick_hotkey_row.addWidget(apply_hotkey_button)
-        quick_hotkey_layout.addLayout(quick_hotkey_row)
-
-        preset_row = QHBoxLayout()
-        for preset in ("F8", "Shift+F8", "Ctrl+M"):
-            preset_button = QPushButton(preset)
-            preset_button.clicked.connect(lambda _checked=False, value=preset: self._set_hotkey_widgets(value))
-            preset_row.addWidget(preset_button)
-        preset_row.addStretch(1)
-        quick_hotkey_layout.addLayout(preset_row)
+        hotkey_row.addWidget(self.quick_hotkey_edit, 1)
+        record = QPushButton("录制")
+        record.clicked.connect(lambda: self._focus_hotkey_editor(self.quick_hotkey_edit))
+        hotkey_row.addWidget(record)
+        apply_hotkey = QPushButton("保存快捷键")
+        apply_hotkey.clicked.connect(self._apply_quick_hotkey)
+        hotkey_row.addWidget(apply_hotkey)
+        hotkey_layout.addLayout(hotkey_row)
         self.home_hotkey_hint_label = QLabel()
         self.home_hotkey_hint_label.setWordWrap(True)
-        quick_hotkey_layout.addWidget(self.home_hotkey_hint_label)
-        quick_layout.addWidget(quick_hotkey_box)
-
-        appearance_box = QGroupBox("软件主题")
-        appearance_layout = QVBoxLayout(appearance_box)
-        appearance_layout.addWidget(QLabel("常用切换入口放在首页，点击后立即生效并保存。"))
-        appearance_row = self._build_theme_mode_switcher(home=True)
-        appearance_layout.addLayout(appearance_row)
-        quick_layout.addWidget(appearance_box)
-
-        action_row = QHBoxLayout()
-        preview_button = QPushButton("测试提示效果")
-        preview_button.clicked.connect(self.context.overlay_manager.trigger_find_mouse)
-        restore_button = QPushButton("恢复系统默认")
-        restore_button.clicked.connect(self._restore_system_default)
-        action_row.addWidget(preview_button)
-        action_row.addWidget(restore_button)
-        action_row.addStretch(1)
-        quick_layout.addLayout(action_row)
-        quick_layout.addWidget(QLabel("找不到鼠标时，除了快捷键，也可以启用“快速晃动后显示尾迹”。"))
-
-        layout.addWidget(quick_box)
-        layout.addStretch(1)
+        self.home_hotkey_hint_label.setObjectName("muted")
+        hotkey_layout.addWidget(self.home_hotkey_hint_label)
+        layout.addWidget(hotkeys)
+        layout.addStretch()
         return self._wrap_scroll_page(page)
+
+    def _change_locator_style(self) -> None:
+        self.context.config.highlight.style = self.locator_style_combo.currentData()
+        self.context.config_manager.save(self.context.config)
+        self.effect_preview.play()
+
     def _build_theme_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -309,9 +336,13 @@ class MainWindow(QMainWindow):
         list_box.setMinimumWidth(300)
         list_layout = QVBoxLayout(list_box)
         self.theme_list = QListWidget()
-        self.theme_list.setMinimumWidth(280)
+        self.theme_list.setMinimumWidth(240)
+        self.theme_list.setIconSize(QSize(32, 32))
         for asset in self.context.cursor_manager.list_builtin_themes():
             item = QListWidgetItem(asset.theme.name)
+            artwork = self.context.cursor_manager.get_cursor_artwork(asset.theme.theme_id, 60, self.context.config.app_state.builtin_theme_palettes.get(asset.theme.theme_id))
+            if artwork is not None:
+                item.setIcon(QIcon(self._pil_to_pixmap(artwork)))
             item.setData(Qt.ItemDataRole.UserRole, asset.theme.theme_id)
             self.theme_list.addItem(item)
         self.theme_list.currentItemChanged.connect(self._on_theme_selection_changed)
@@ -897,11 +928,17 @@ class MainWindow(QMainWindow):
         else:
             pixmap = self._pil_to_pixmap(preview_image)
             self.theme_preview_label.setPixmap(pixmap.scaled(240, 240, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        artwork = self.context.cursor_manager.get_cursor_artwork(theme_id, self.context.config.pointer.cursor_size_percent,
+                                                             self._selected_theme_palette_override())
+        if artwork is not None:
+            pixmap = self._pil_to_pixmap(artwork)
+            self.effect_preview.set_artwork(pixmap, QPointF(asset.theme.hotspot_x / 64, asset.theme.hotspot_y / 64))
+            self.theme_list.currentItem().setIcon(QIcon(pixmap))
         self.theme_name_label.setText(asset.theme.name)
         self.theme_description_label.setText(asset.theme.description)
         self._refresh_palette_buttons(theme_id)
         if self.quick_theme_label is not None:
-            self.quick_theme_label.setText(f"快速主题切换：{asset.theme.name}")
+            self.quick_theme_label.setText(asset.theme.name)
 
     def _selected_theme_palette_override(self) -> dict[str, str] | None:
         theme_id = self._selected_theme_id()
@@ -987,22 +1024,18 @@ class MainWindow(QMainWindow):
         if asset is None:
             self._show_warning("找不到所选主题资源。")
             return
-        palette_override = self._selected_theme_palette_override()
-        size_percent = self.context.config.pointer.cursor_size_percent
-        if not self.context.cursor_manager.apply_builtin_theme(theme_id, size_percent=size_percent, palette_override=palette_override):
-            self._show_warning("应用内置主题失败。某些程序可能会覆盖系统光标。")
-            return
-        cursor_path = self.context.cursor_manager.get_builtin_cursor_path(theme_id, size_percent=size_percent, palette_override=palette_override)
-        self.context.config.app_state.current_theme = CursorTheme(
+        theme = CursorTheme(
             theme_id=asset.theme.theme_id,
             theme_name=asset.theme.name,
             source="builtin",
-            cursor_path=str(cursor_path) if cursor_path is not None else str(asset.cursor_path),
+            cursor_path=str(asset.cursor_path),
             hotspot_x=asset.theme.hotspot_x,
             hotspot_y=asset.theme.hotspot_y,
         )
+        if not self.context.enhancement_manager.set_base_theme(theme):
+            self._show_warning("应用内置主题失败。")
+            return
         self.context.config_manager.save(self.context.config)
-        self.context.enhancement_manager.notify_base_theme_changed()
         self._refresh_state_labels()
         self.statusBar().showMessage(f"已应用主题：{asset.theme.name}", 3000)
 
@@ -1025,12 +1058,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"快捷键已更新为 {hotkey_value}", 3000)
 
     def _restore_system_default(self) -> None:
-        if not self.context.cursor_manager.restore_system_default():
+        if not self.context.enhancement_manager.set_base_theme(CursorTheme()):
             self._show_warning("恢复系统默认光标失败。")
             return
-        self.context.config.app_state.current_theme = CursorTheme()
         self.context.config_manager.save(self.context.config)
-        self.context.enhancement_manager.notify_base_theme_changed()
         self._refresh_state_labels()
         self.statusBar().showMessage("已恢复系统默认光标。", 3000)
     def _import_custom_image(self) -> None:
@@ -1101,12 +1132,7 @@ class MainWindow(QMainWindow):
                 hotspot_x=self.hotspot_x_spin.value() if self.hotspot_x_spin is not None else 32,
                 hotspot_y=self.hotspot_y_spin.value() if self.hotspot_y_spin is not None else 32,
             )
-            if not self.context.cursor_manager.apply_cursor_file(cursor_path):
-                raise RuntimeError("Windows 光标应用失败")
-            recent = [str(cursor_path)]
-            recent.extend(path for path in self.context.config.app_state.recent_custom_cursors if path != str(cursor_path))
-            self.context.config.app_state.recent_custom_cursors = recent[:10]
-            self.context.config.app_state.current_theme = CursorTheme(
+            theme = CursorTheme(
                 theme_id=self.current_custom_project.project_id,
                 theme_name=f"自定义 - {self.current_custom_project.display_name}",
                 source="custom",
@@ -1114,8 +1140,12 @@ class MainWindow(QMainWindow):
                 hotspot_x=self.hotspot_x_spin.value() if self.hotspot_x_spin is not None else 32,
                 hotspot_y=self.hotspot_y_spin.value() if self.hotspot_y_spin is not None else 32,
             )
+            if not self.context.enhancement_manager.set_base_theme(theme):
+                raise RuntimeError("Windows 光标应用失败")
+            recent = [str(cursor_path)]
+            recent.extend(path for path in self.context.config.app_state.recent_custom_cursors if path != str(cursor_path))
+            self.context.config.app_state.recent_custom_cursors = recent[:10]
             self.context.config_manager.save(self.context.config)
-            self.context.enhancement_manager.notify_base_theme_changed()
             self._refresh_state_labels()
             self.statusBar().showMessage("已生成并应用自定义光标。", 3000)
         except Exception as exc:
@@ -1142,33 +1172,37 @@ class MainWindow(QMainWindow):
         effective_theme = self.context.enhancement_manager.effective_theme
         active_rule = self.context.enhancement_manager.active_rule
         if self.current_theme_label is not None:
-            theme_text = f"当前生效主题：{effective_theme.theme_name}"
+            theme_text = effective_theme.theme_name
             if active_rule is not None:
                 theme_text += f"（按程序规则：{active_rule.process_name}）"
             self.current_theme_label.setText(theme_text)
         if self.current_hotkey_label is not None:
-            hint = describe_hotkey_sequence(self.context.config.highlight.hotkey)
-            self.current_hotkey_label.setText(f"找回鼠标快捷键：{self.context.config.highlight.hotkey} | {hint}")
+            self.current_hotkey_label.setText(f"找回鼠标   {self.context.config.highlight.hotkey}")
         if self.current_tray_label is not None:
             tray_status = "已启用" if self.tray_manager is not None else "待初始化"
-            self.current_tray_label.setText(f"托盘状态：{tray_status}")
+            self.current_tray_label.setText(f"系统托盘   {tray_status}")
         if self.current_process_label is not None:
             process_name = self.context.enhancement_manager.foreground_process_name or "无"
-            self.current_process_label.setText(f"前台应用：{process_name}")
+            self.current_process_label.setText(f"前台应用   {process_name}")
         if self.current_runtime_label is not None:
             flags = [f"光标大小 {self.context.config.pointer.cursor_size_percent}%"]
             if self.context.config.pointer.shake_to_find_enabled:
-                flags.append(f"晃动尾迹 {self._trail_style_label(self.context.config.pointer.trail_style)}")
+                flags.append(self._trail_style_label(self.context.config.pointer.trail_style))
             if self.context.config.click_ripple.enabled:
                 flags.append("点击波纹")
-            if self.context.config.dynamic_cursor.enabled:
-                flags.append("动态光标")
+            mode = self.context.enhancement_manager.playback_mode
+            if mode == "native":
+                flags.append("原生动画")
+            elif mode == "fallback":
+                flags.append("动画加载失败，已使用静态主题")
+            elif mode == "error":
+                flags.append("系统光标应用失败")
             if self.context.config.app_switch.enabled:
                 flags.append("按程序切换")
             status = "、".join(flags)
             if self.context.enhancement_manager.game_mode_active:
                 status += "，当前因全屏应用已自动暂停增强"
-            self.current_runtime_label.setText(f"增强状态：{status}")
+            self.current_runtime_label.setText(status)
 
     def _refresh_custom_labels(self) -> None:
         if self.custom_file_label is not None:
@@ -1236,7 +1270,7 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             apply_app_theme(app, self.context.config.appearance.theme_mode)
-        self.context.enhancement_manager.refresh_from_config(force_apply=True)
+        self.context.enhancement_manager.refresh_from_config()
         self._refresh_trail_color_button()
         self._refresh_theme_preview()
         self._refresh_state_labels()

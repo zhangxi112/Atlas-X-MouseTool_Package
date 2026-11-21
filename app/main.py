@@ -48,15 +48,27 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     from app.bootstrap import bootstrap_app
+    from app.instance import StudioInstance
+    from services.runtime_paths import user_data_dir
     from services.tray_hotkey_manager import TrayHotkeyManager
     from ui.app_styles import apply_app_theme
     from ui.main_window import MainWindow
 
-    context = bootstrap_app()
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName("张希")
     app.setQuitOnLastWindowClosed(False)
+    hidden = args.startup or args.minimized
+    instance = StudioInstance(user_data_dir())
+    try:
+        if not instance.acquire(show_existing=not hidden):
+            return 0
+    except RuntimeError as exc:
+        from ui.dialog_utils import show_critical
+
+        show_critical(None, "dark", APP_NAME, str(exc))
+        return 1
+    context = bootstrap_app()
     apply_app_theme(app, context.config.appearance.theme_mode)
 
     install_exception_hook(context)
@@ -67,11 +79,13 @@ def main() -> int:
     app.aboutToQuit.connect(window.wait_for_background_task)
     tray_manager = TrayHotkeyManager(app=app, window=window, hotkey_sequence=context.config.highlight.hotkey, on_find_mouse=context.overlay_manager.trigger_find_mouse)
     tray_manager.start()
+    instance.activate_requested.connect(tray_manager.show_window)
     app.aboutToQuit.connect(tray_manager.stop)
     app.aboutToQuit.connect(context.enhancement_manager.stop)
     app.aboutToQuit.connect(context.overlay_manager.shutdown)
+    app.aboutToQuit.connect(instance.close)
     window.set_tray_manager(tray_manager)
-    if not (args.startup or args.minimized):
+    if not hidden:
         window.show()
     return app.exec()
 

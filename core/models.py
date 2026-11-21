@@ -12,6 +12,7 @@ class HighlightSettings:
     ring_size: int = 220
     multi_monitor: bool = True
     hotkey: str = "F8"
+    style: str = "focus"
 
 
 @dataclass(slots=True)

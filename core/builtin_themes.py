@@ -42,6 +42,8 @@ BUILTIN_THEMES: tuple[BuiltinThemeDefinition, ...] = (
     BuiltinThemeDefinition("diamond_pointer", "钻石指针 Diamond Pointer", "菱形高亮指针，强调鼠标中心位置。", 32, 18, ThemePalette("#FFFFFF", "#0F172A", "#FACC15", "#3B82F6")),
     BuiltinThemeDefinition("hollow_ring", "空心环 Hollow Ring", "空心圆环样式，适合演示与圈选定位。", 32, 32, ThemePalette("#FFFFFF", "#0F172A", "#111827", "#A855F7")),
     BuiltinThemeDefinition("pinpoint", "定位针 Pinpoint", "类似图钉的定位针样式，适合突出点击点。", 32, 10, ThemePalette("#FFFFFF", "#0F172A", "#FACC15", "#F43F5E")),
+    BuiltinThemeDefinition("prism", "棱镜 Prism", "镂空的折面箭头，左上尖端用于点选。", 8, 5, ThemePalette("#E5FFF3", "#173632", "#34D6A4", "#4DEBC2")),
+    BuiltinThemeDefinition("orbit", "轨道 Orbit", "开口双环围绕中心定位点，便于对准图纸或幻灯片上的细节。", 32, 32, ThemePalette("#F6F8FF", "#24243A", "#BCB3FF", "#8674FF")),
 )
 
 

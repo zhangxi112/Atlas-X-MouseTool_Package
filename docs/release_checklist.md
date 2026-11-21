@@ -5,7 +5,7 @@
 - [ ] 应用可以正常启动
 - [ ] 托盘图标显示正常
 - [ ] 主窗口可以从托盘打开与隐藏
-- [ ] 至少 10 个内置鼠标主题可预览并切换
+- [ ] 12 个内置鼠标主题可预览并切换
 - [ ] 主题配色可分别调整主体色、描边色、强调色、发光色
 - [ ] 找回鼠标快捷键可通过录制框设置并正常触发
 - [ ] 快速晃动鼠标后可显示尾迹提示
@@ -40,12 +40,12 @@
 
 - [ ] `scripts/build.ps1` 可执行
 - [ ] `atlas_cursor_studio.spec` 可生成产物
-- [ ] `release/1.0.1/dist/AtlasXCursorStudio/AtlasXCursorStudio.exe` 可启动
+- [ ] `release/2.0/dist/AtlasXCursorStudio/AtlasXCursorStudio.exe` 可启动
 - [ ] `scripts\\build_release.ps1` 可生成完整发布包
-- [ ] `release/1.0.1/AtlasXCursorStudio-portable-1.0.1.zip` 已生成
-- [ ] `release/1.0.1/AtlasXCursorStudio-Setup-1.0.1.exe` 已生成
+- [ ] `release/2.0/AtlasXCursorStudio-portable-2.0.zip` 已生成
+- [ ] `release/2.0/AtlasXCursorStudio-Setup-2.0.exe` 已生成
 - [ ] 打包后的 `--self-test` 已通过，报告版本正确且 `frozen` 为 `true`
-- [ ] `release/1.0.1/SHA256SUMS.txt` 与两份发布文件一致
+- [ ] `release/2.0/SHA256SUMS.txt` 与两份发布文件一致
 - [ ] GitHub Release 的版本、附件与最新发布标记均已核对
 - [ ] 发布目录包含必要 DLL 和资源文件
 - [ ] 首次抠图时模型下载行为符合预期

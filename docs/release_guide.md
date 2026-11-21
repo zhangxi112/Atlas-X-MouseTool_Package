@@ -12,9 +12,9 @@
 
 ## 建议发布件
 
-- 安装器：`release\1.0.1\AtlasXCursorStudio-Setup-1.0.1.exe`
-- 便携版：`release\1.0.1\AtlasXCursorStudio-portable-1.0.1.zip`
-- 校验文件：`release\1.0.1\SHA256SUMS.txt`
+- 安装器：`release\2.0\AtlasXCursorStudio-Setup-2.0.exe`
+- 便携版：`release\2.0\AtlasXCursorStudio-portable-2.0.zip`
+- 校验文件：`release\2.0\SHA256SUMS.txt`
 - 发布包建议包含 `THIRD_PARTY_NOTICES.md` 和 `licenses` 目录。
 
 ## 构建与发布
@@ -23,10 +23,10 @@
 2. 运行 `python -m pytest -q` 与 `python -m compileall -q app core services ui tests`。
 3. 运行 `scripts/build_release.ps1 -Clean`。脚本自动从版本常量读取版本，构建到独立目录，运行打包程序 `--self-test`，然后生成便携版、安装器和 SHA-256 校验文件。
 4. 自检覆盖资源、配置读写、光标生成、主窗口和 ONNX 导入，不注册系统快捷键、不修改开机启动、不替换系统光标，不下载模型。
-5. 将变更提交并推送，随后推送同名标签（例如 `v1.0.1`）。GitHub Actions 自动执行测试和打包，先上传为草稿，资产齐备后发布为 Latest。已公开版本不会被工作流覆盖。
+5. 将变更提交并推送，随后推送同名标签（例如 `v2.0`）。GitHub Actions 自动执行测试和打包，先上传为草稿，资产齐备后发布为 Latest。也可将标题为 `Release v2.0`（与当前版本匹配）的发布提交推送到 main，工作流会为该提交建立标签。已公开版本不会被工作流覆盖。
 6. 在 Releases 确认可下载的 `.exe`、`.zip` 和 `SHA256SUMS.txt`，核对版本和校验值。多屏、DPI、全屏等行为仍需要实机验证。
 
-当前发布说明见 [v1.0.1](releases/v1.0.1.md)。旧版首次发表信息保留如下，不能用新版本截图替代旧版证据。
+当前发布说明见 [v2.0](releases/v2.0.md)。旧版首次发表信息保留如下，不能用新版本截图替代旧版证据。
 
 ## v1.0 首次发表文案（历史记录）
 

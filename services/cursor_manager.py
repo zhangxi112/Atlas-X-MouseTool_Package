@@ -6,29 +6,32 @@ import ctypes
 import io
 import logging
 import math
+import os
 import struct
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from core.builtin_themes import BUILTIN_THEMES, BuiltinThemeDefinition, ThemePalette
+from core.animated_cursor import encode_animation, interval_jiffies
+from core.builtin_themes import BUILTIN_THEMES, BuiltinThemeDefinition
 from core.constants import ROOT_DIR
 from core.models import CursorTheme
 from services.runtime_paths import user_data_dir
 
 IMAGE_CURSOR = 2
 LR_LOADFROMFILE = 0x0010
-LR_DEFAULTSIZE = 0x0040
 SPI_SETCURSORS = 0x0057
 WIN32_CURSOR_API_AVAILABLE = hasattr(ctypes, "windll")
 
 if WIN32_CURSOR_API_AVAILABLE:
-    USER32 = ctypes.windll.user32
+    USER32 = ctypes.WinDLL("user32", use_last_error=True)
     USER32.LoadImageW.restype = ctypes.c_void_p
     USER32.LoadImageW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_int, ctypes.c_int, ctypes.c_uint]
-    USER32.SetSystemCursor.restype = ctypes.c_bool
+    USER32.SetSystemCursor.restype = ctypes.c_int
     USER32.SetSystemCursor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+    USER32.DestroyCursor.argtypes = [ctypes.c_void_p]
     USER32.SystemParametersInfoW.restype = ctypes.c_bool
     USER32.SystemParametersInfoW.argtypes = [ctypes.c_uint, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
 else:
@@ -62,10 +65,21 @@ class CursorManager:
         return self._theme_assets.get(theme_id)
 
     def get_preview_image(self, theme_id: str, palette_override: dict[str, str] | None = None, scale_percent: int = 100) -> Image.Image | None:
+        artwork = self.get_cursor_artwork(theme_id, scale_percent, palette_override)
+        if artwork is None:
+            return None
+        artwork.thumbnail((128, 128), Image.Resampling.LANCZOS)
+        canvas = Image.new("RGBA", (128, 128))
+        canvas.alpha_composite(artwork, ((128 - artwork.width) // 2, (128 - artwork.height) // 2))
+        return self._decorate_preview(canvas)
+
+    def get_cursor_artwork(self, theme_id: str, size_percent: int, palette_override: dict[str, str] | None = None) -> Image.Image | None:
         asset = self.get_builtin_theme_asset(theme_id)
         if asset is None:
             return None
-        return self._decorate_preview(self._render_theme_image(asset.theme, phase=0.0, scale_percent=scale_percent, palette_override=palette_override))
+        size = self._cursor_dimensions_for_percent(size_percent)
+        image = self._render_theme_image(asset.theme, palette_override=palette_override)
+        return image.resize((size, size), Image.Resampling.LANCZOS)
 
     def get_builtin_cursor_path(self, theme_id: str, size_percent: int = 100, palette_override: dict[str, str] | None = None) -> Path | None:
         self._ensure_builtin_assets()
@@ -82,11 +96,11 @@ class CursorManager:
             self._scaled_cursor_paths[key] = asset.cursor_path
             return asset.cursor_path
 
-        scaled_dir = self.builtin_dir / "scaled"
+        scaled_dir = self.builtin_dir / "v2" / "scaled"
         scaled_dir.mkdir(parents=True, exist_ok=True)
         cursor_path = scaled_dir / f"{theme_id}_{size_percent}_{palette_key}.cur"
         if not cursor_path.exists():
-            image = self._render_theme_image(asset.theme, phase=0.0, scale_percent=size_percent, palette_override=palette_override)
+            image = self._render_theme_image(asset.theme, palette_override=palette_override)
             cursor_size = self._cursor_dimensions_for_percent(size_percent)
             hotspot_x, hotspot_y = self._scaled_hotspot(asset.theme.hotspot_x, asset.theme.hotspot_y, cursor_size)
             self.create_cursor_file_from_image(image, cursor_path, hotspot_x, hotspot_y, size=(cursor_size, cursor_size))
@@ -104,20 +118,35 @@ class CursorManager:
         if cached is not None:
             return cached
 
-        frames_dir = self.builtin_dir / "animated" / f"{theme_id}_{size_percent}_{palette_key}"
+        frames_dir = self.builtin_dir / "v2" / "animated" / f"{theme_id}_{size_percent}_{palette_key}"
         frames_dir.mkdir(parents=True, exist_ok=True)
         frame_paths: list[Path] = []
         for frame_index in range(6):
             phase = frame_index / 6
             cursor_path = frames_dir / f"frame_{frame_index}.cur"
             if not cursor_path.exists():
-                image = self._render_theme_image(asset.theme, phase=phase, scale_percent=size_percent, palette_override=palette_override)
+                image = self._render_theme_image(asset.theme, phase=phase, palette_override=palette_override)
+                # A rotating accent keeps the hotspot stationary, including on solid themes.
+                bounds = (14, 14, 114, 114)
+                angle = round(phase * 360) - 90
+                accent = self._resolve_palette(asset.theme, palette_override)["accent"]
+                ImageDraw.Draw(image).arc(bounds, angle, angle + 36, fill=accent, width=3)
                 cursor_size = self._cursor_dimensions_for_percent(size_percent)
                 hotspot_x, hotspot_y = self._scaled_hotspot(asset.theme.hotspot_x, asset.theme.hotspot_y, cursor_size)
                 self.create_cursor_file_from_image(image, cursor_path, hotspot_x, hotspot_y, size=(cursor_size, cursor_size))
             frame_paths.append(cursor_path)
         self._animated_frames[key] = frame_paths
         return frame_paths
+
+    def get_animated_cursor_path(self, theme_id: str, size_percent: int, palette_override: dict[str, str] | None, interval_ms: int) -> Path | None:
+        frames = self.get_animated_theme_frame_paths(theme_id, size_percent, palette_override)
+        if not frames:
+            return None
+        jiffies = interval_jiffies(interval_ms)
+        animation = frames[0].parent / f"cycle-{jiffies}.ani"
+        if not animation.is_file():
+            self._write_cursor_bytes(animation, encode_animation([frame.read_bytes() for frame in frames], jiffies))
+        return animation
 
     def apply_theme(self, theme: CursorTheme, size_percent: int = 100, palette_override: dict[str, str] | None = None) -> bool:
         if theme.source == "system" or theme.theme_id == "system_default":
@@ -144,18 +173,29 @@ class CursorManager:
         if not path.exists():
             self.logger.error("Cursor file does not exist: %s", path)
             return False
+        handles = []
+        installed = 0
         try:
-            for cursor_id in self.APPLY_CURSOR_IDS:
+            for _ in self.APPLY_CURSOR_IDS:
                 handle = USER32.LoadImageW(None, str(path), IMAGE_CURSOR, 0, 0, LR_LOADFROMFILE)
                 if not handle:
                     raise ctypes.WinError(ctypes.get_last_error())
+                handles.append(handle)
+            for handle, cursor_id in zip(handles, self.APPLY_CURSOR_IDS):
                 if not USER32.SetSystemCursor(handle, cursor_id):
                     raise ctypes.WinError(ctypes.get_last_error())
+                installed += 1
             self.logger.debug("Applied cursor file to system roles: %s", path)
             return True
         except Exception as exc:
             self.logger.exception("Failed to apply cursor file: %s", exc)
+            if installed:
+                self.restore_system_default()
             return False
+        finally:
+            # Windows owns handles accepted by SetSystemCursor.
+            for handle in handles[installed:]:
+                USER32.DestroyCursor(handle)
 
     def restore_system_default(self) -> bool:
         if not WIN32_CURSOR_API_AVAILABLE or USER32 is None:
@@ -175,8 +215,20 @@ class CursorManager:
         cur_bytes = self._build_cur_bytes(normalized, hotspot_x, hotspot_y)
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(cur_bytes)
+        self._write_cursor_bytes(path, cur_bytes)
         return path
+
+    @staticmethod
+    def _write_cursor_bytes(path: Path, data: bytes) -> None:
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(data)
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def _cursor_dimensions_for_percent(self, size_percent: int) -> int:
         return min(256, max(16, int(round(64 * (size_percent / 100)))))
@@ -205,7 +257,7 @@ class CursorManager:
                 self.create_cursor_file_from_image(image, cursor_path, theme.hotspot_x, theme.hotspot_y)
             self._theme_assets[theme.theme_id] = CursorThemeAsset(theme=theme, preview_path=preview_path, cursor_path=cursor_path)
 
-    def _render_theme_image(self, theme: BuiltinThemeDefinition, phase: float = 0.0, scale_percent: int = 100, palette_override: dict[str, str] | None = None) -> Image.Image:
+    def _render_theme_image(self, theme: BuiltinThemeDefinition, phase: float = 0.0, palette_override: dict[str, str] | None = None) -> Image.Image:
         renderers = {
             "classic_arrow": self._render_classic_arrow,
             "round_dot": self._render_round_dot,
@@ -217,12 +269,14 @@ class CursorManager:
             "diamond_pointer": self._render_diamond_pointer,
             "hollow_ring": self._render_hollow_ring,
             "pinpoint": self._render_pinpoint,
+            "prism": self._render_prism,
+            "orbit": self._render_orbit,
         }
         renderer = renderers.get(theme.theme_id)
         if renderer is None:
             raise ValueError(f"No renderer registered for theme {theme.theme_id}")
         palette = self._resolve_palette(theme, palette_override)
-        return self._rescale_subject(renderer(palette, phase), scale_percent)
+        return renderer(palette, phase)
 
     def _render_classic_arrow(self, palette: dict[str, tuple[int, int, int, int]], phase: float) -> Image.Image:
         image = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
@@ -335,6 +389,34 @@ class CursorManager:
         draw.rectangle((60, 98, 68, 124), fill=palette["secondary"])
         return image
 
+    def _render_prism(self, palette, phase: float) -> Image.Image:
+        image = Image.new("RGBA", (128, 128))
+        facets = [(16, 10), (106, 72), (67, 75), (49, 113)]
+        glow = ImageDraw.Draw(image)
+        glow.polygon(facets, fill=self._with_alpha(palette["glow"], 110))
+        image = image.filter(ImageFilter.GaussianBlur(5))
+        draw = ImageDraw.Draw(image)
+        draw.polygon(facets, fill=palette["secondary"])
+        draw.polygon([(21, 17), (96, 68), (57, 63)], fill=palette["primary"])
+        draw.polygon([(21, 17), (57, 63), (49, 100)], fill=palette["accent"])
+        draw.line([(21, 17), (57, 63), (96, 68)], fill=palette["primary"], width=3)
+        return image
+
+    def _render_orbit(self, palette, phase: float) -> Image.Image:
+        image = Image.new("RGBA", (128, 128))
+        bounds = (18, 18, 110, 110)
+        ImageDraw.Draw(image).ellipse(bounds, outline=self._with_alpha(palette["glow"], 150), width=7)
+        image = image.filter(ImageFilter.GaussianBlur(5))
+        draw = ImageDraw.Draw(image)
+        angle = int(phase * 360)
+        for start in (angle + 10, angle + 190):
+            draw.arc(bounds, start, start + 140, fill=palette["secondary"], width=9)
+            draw.arc((20, 20, 108, 108), start, start + 140, fill=palette["accent"], width=4)
+        for start in (0, 90, 180, 270):
+            draw.arc((39, 39, 89, 89), start + 15, start + 58, fill=palette["primary"], width=4)
+        draw.ellipse((59, 59, 69, 69), fill=palette["primary"], outline=palette["secondary"], width=2)
+        return image
+
     def _resolve_palette(self, theme: BuiltinThemeDefinition, override: dict[str, str] | None) -> dict[str, tuple[int, int, int, int]]:
         source = theme.palette.to_dict()
         if override:
@@ -359,24 +441,6 @@ class CursorManager:
                 draw.rectangle((x, y, x + tile, y + tile), fill=fill)
         checker.alpha_composite(image)
         return checker
-
-    def _rescale_subject(self, image: Image.Image, scale_percent: int) -> Image.Image:
-        if scale_percent == 100:
-            return image
-        rgba = image.convert("RGBA")
-        bbox = rgba.getchannel("A").getbbox()
-        if bbox is None:
-            return rgba
-        subject = rgba.crop(bbox)
-        scale = max(0.5, min(7.0, scale_percent / 100))
-        resized = subject.resize((max(1, int(subject.width * scale)), max(1, int(subject.height * scale))), Image.Resampling.LANCZOS)
-        max_w, max_h = rgba.width, rgba.height
-        if resized.width > max_w or resized.height > max_h:
-            fitted = min(max_w / resized.width, max_h / resized.height)
-            resized = resized.resize((max(1, int(resized.width * fitted)), max(1, int(resized.height * fitted))), Image.Resampling.LANCZOS)
-        canvas = Image.new("RGBA", rgba.size, (0, 0, 0, 0))
-        canvas.alpha_composite(resized, ((canvas.width - resized.width) // 2, (canvas.height - resized.height) // 2))
-        return canvas
 
     def _hex_to_rgba(self, value: str) -> tuple[int, int, int, int]:
         hex_value = value.strip().lstrip("#")
